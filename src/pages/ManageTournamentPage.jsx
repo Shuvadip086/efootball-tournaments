@@ -105,9 +105,10 @@ export default function ManageTournamentPage() {
                 href={`/t/${tournament.slug}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors hidden sm:block"
+                className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors"
               >
-                Public page ↗
+                <span className="hidden sm:inline">Public page</span>
+                <span className="sm:hidden">↗</span>
               </a>
             )}
           </div>

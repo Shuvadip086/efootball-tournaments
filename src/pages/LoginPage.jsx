@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { supabase } from '../supabaseClient'
@@ -23,8 +23,13 @@ export default function LoginPage() {
   const [googleLoading, setGoogleLoading] = useState(false)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
-  const { signIn, signUp } = useAuth()
+  const { user, signIn, signUp } = useAuth()
   const navigate = useNavigate()
+
+  // Redirect to dashboard if already signed in (handles Google OAuth callback)
+  useEffect(() => {
+    if (user) navigate('/dashboard', { replace: true })
+  }, [user, navigate])
 
   const handleGoogleSignIn = async () => {
     setError('')

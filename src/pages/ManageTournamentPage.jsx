@@ -221,27 +221,47 @@ export default function ManageTournamentPage() {
             <div>
               {fixtures.length === 0 ? (
                 <p className="text-gray-400 text-sm text-center py-8">No fixtures yet. Generate them from the action bar above.</p>
-              ) : tournament.format === 'knockout' ? (
-                <KnockoutBracket fixtures={fixtures} players={players} />
               ) : (
-                <div className="space-y-2">
+                <div className="space-y-6">
+                  {/* Bracket view for knockout */}
+                  {tournament.format === 'knockout' && (
+                    <KnockoutBracket fixtures={fixtures} players={players} />
+                  )}
+
+                  {/* Match list with Enter Score for all formats */}
                   {[...new Set(fixtures.map(f => f.round))].sort((a, b) => a - b).map(round => (
                     <div key={round}>
-                      <h3 className="text-xs font-semibold uppercase text-gray-500 mb-2">Round {round}</h3>
+                      <h3 className="text-xs font-semibold uppercase text-gray-500 mb-2">
+                        {tournament.format === 'knockout'
+                          ? (fixtures.filter(f => f.round === round).length === 1 ? 'Final' : `Round ${round}`)
+                          : `Round ${round}`}
+                      </h3>
                       <div className="space-y-2 mb-4">
                         {fixtures.filter(f => f.round === round).map(f => (
                           <div key={f.id} className="flex items-center justify-between bg-gray-900 border border-gray-800 rounded-xl px-4 py-3">
                             <div className="flex items-center gap-3 flex-1 min-w-0">
-                              <span className="text-sm font-medium truncate">{playerMap[f.home_player_id]?.name}</span>
+                              <span className={`text-sm font-medium truncate ${f.status === 'completed' && f.home_score > f.away_score ? 'text-white' : 'text-gray-300'}`}>
+                                {playerMap[f.home_player_id]?.name}
+                              </span>
                               <span className="text-gray-500 text-xs shrink-0">vs</span>
-                              <span className="text-sm font-medium truncate">{playerMap[f.away_player_id]?.name}</span>
+                              <span className={`text-sm font-medium truncate ${f.status === 'completed' && f.away_score > f.home_score ? 'text-white' : 'text-gray-300'}`}>
+                                {playerMap[f.away_player_id]?.name}
+                              </span>
                             </div>
                             {f.status === 'completed' ? (
-                              <span className="text-sm font-bold text-indigo-400 ml-2 shrink-0">{f.home_score} – {f.away_score}</span>
+                              <div className="flex items-center gap-2 ml-2 shrink-0">
+                                <span className="text-sm font-bold text-indigo-400">{f.home_score} – {f.away_score}</span>
+                                <button
+                                  onClick={() => openScoreModal(f)}
+                                  className="text-xs text-gray-500 hover:text-gray-300 underline transition-colors"
+                                >
+                                  Edit
+                                </button>
+                              </div>
                             ) : (
                               <button
                                 onClick={() => openScoreModal(f)}
-                                className="ml-2 shrink-0 text-xs bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded-lg transition-colors"
+                                className="ml-2 shrink-0 text-xs bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded-lg transition-colors font-medium"
                               >
                                 Enter Score
                               </button>

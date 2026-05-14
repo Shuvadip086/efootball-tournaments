@@ -333,9 +333,9 @@ export default function CreateTournamentPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-950 text-white">
+    <div className="min-h-screen stadium-bg text-white">
       {/* Navbar */}
-      <nav className="border-b border-gray-800 bg-gray-900 px-4 py-3">
+      <nav className="border-b border-gray-800 bg-gray-900/80 backdrop-blur px-4 py-3">
         <div className="max-w-3xl mx-auto flex items-center gap-3">
           <Link to="/dashboard" className="text-gray-400 hover:text-white transition-colors text-sm">← Back</Link>
           <span className="text-gray-600">|</span>

@@ -6,6 +6,7 @@ import LeagueTable from '../components/LeagueTable'
 import KnockoutBracket from '../components/KnockoutBracket'
 import GroupStandings from '../components/GroupStandings'
 import PlayerAvatar from '../components/PlayerAvatar'
+import TopScorers from '../components/TopScorers'
 
 const FORMAT_ICON  = { league: '📊', knockout: '🥊', group_knockout: '🏆' }
 const FORMAT_LABEL = { league: 'Round Robin', knockout: 'Single Elimination', group_knockout: 'Group + Knockout' }
@@ -41,14 +42,16 @@ export default function PublicTournamentPage() {
   const label = FORMAT_LABEL[tournament.format] ?? tournament.format
 
   return (
-    <div className="min-h-screen bg-gray-950 text-white">
+    <div className="min-h-screen stadium-bg text-white">
 
       {/* ── Hero header ── */}
       <div className="relative overflow-hidden">
         <div className="absolute inset-0 bg-gradient-to-br from-indigo-950 via-gray-950 to-emerald-950 opacity-90" />
-        <div className="absolute inset-0 opacity-[0.04]"
-             style={{ backgroundImage: 'repeating-linear-gradient(0deg,transparent,transparent 59px,#fff 59px,#fff 60px),repeating-linear-gradient(90deg,transparent,transparent 59px,#fff 59px,#fff 60px)' }} />
+        <div className="absolute inset-0 pitch-lines" />
         <div className="absolute inset-0 bg-gradient-to-b from-transparent to-gray-950" />
+        {/* Centre circle accent */}
+        <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-64 rounded-full border border-white/5 opacity-50 pointer-events-none" />
+        <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-white/20 pointer-events-none" />
 
         <div className="relative max-w-3xl mx-auto px-4 py-12 text-center">
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-indigo-500 to-emerald-500 mb-5 text-3xl shadow-2xl shadow-indigo-950/60">
@@ -144,6 +147,14 @@ export default function PublicTournamentPage() {
               </section>
             )}
           </>
+        )}
+
+        {/* ── Top Scorers / Golden Boot ── */}
+        {completedFixtures.length > 0 && (
+          <section>
+            <SectionHeader icon="⚽" title="Top Scorers" />
+            <TopScorers fixtures={fixtures} players={players} />
+          </section>
         )}
 
         {/* ── Fixtures at a glance ── */}

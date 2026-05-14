@@ -42,7 +42,7 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-950 text-white">
+    <div className="min-h-screen stadium-bg text-white">
       {/* Navbar */}
       <nav className="border-b border-gray-800 bg-gray-900 px-4 py-3">
         <div className="max-w-5xl mx-auto flex items-center justify-between">
@@ -100,7 +100,7 @@ export default function DashboardPage() {
               <div
                 key={t.id}
                 onClick={() => navigate(`/tournament/manage/${t.id}`)}
-                className="relative bg-gray-900 border border-gray-800 rounded-2xl p-5 hover:border-indigo-600 transition-all hover:shadow-lg hover:shadow-indigo-950/50 group cursor-pointer"
+                className="relative bg-gray-900 border border-gray-800 rounded-2xl p-5 hover:border-indigo-600 transition-all hover:shadow-lg hover:shadow-indigo-950/50 group cursor-pointer card-hover-glow overflow-hidden"
               >
                 {/* Delete button */}
                 <button

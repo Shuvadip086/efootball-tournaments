@@ -183,9 +183,9 @@ export default function ManageTournamentPage() {
   }[tournament?.format] ?? tournament?.format
 
   return (
-    <div className="min-h-screen bg-gray-950 text-white">
+    <div className="min-h-screen stadium-bg text-white">
       {/* Navbar */}
-      <nav className="border-b border-gray-800 bg-gray-900 px-4 py-3">
+      <nav className="border-b border-gray-800 bg-gray-900/80 backdrop-blur px-4 py-3">
         <div className="max-w-5xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Link to="/dashboard" className="text-gray-400 hover:text-white transition-colors text-sm">← Dashboard</Link>

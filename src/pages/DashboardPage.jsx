@@ -33,6 +33,14 @@ export default function DashboardPage() {
     navigate('/')
   }
 
+  const handleDelete = async (e, tournamentId, tournamentName) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (!confirm(`Delete "${tournamentName}"? This will permanently remove all players, fixtures, and standings.`)) return
+    await supabase.from('tournaments').delete().eq('id', tournamentId)
+    setTournaments(prev => prev.filter(t => t.id !== tournamentId))
+  }
+
   return (
     <div className="min-h-screen bg-gray-950 text-white">
       {/* Navbar */}
@@ -89,27 +97,38 @@ export default function DashboardPage() {
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {tournaments.map(t => (
-              <Link
+              <div
                 key={t.id}
-                to={`/tournament/manage/${t.id}`}
-                className="bg-gray-900 border border-gray-800 rounded-2xl p-5 hover:border-indigo-600 transition-all hover:shadow-lg hover:shadow-indigo-950/50 group"
+                onClick={() => navigate(`/tournament/manage/${t.id}`)}
+                className="relative bg-gray-900 border border-gray-800 rounded-2xl p-5 hover:border-indigo-600 transition-all hover:shadow-lg hover:shadow-indigo-950/50 group cursor-pointer"
               >
+                {/* Delete button */}
+                <button
+                  onClick={e => handleDelete(e, t.id, t.name)}
+                  className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity text-gray-600 hover:text-red-400 hover:bg-red-900/30 w-7 h-7 rounded-lg flex items-center justify-center text-sm"
+                  title="Delete tournament"
+                >
+                  🗑
+                </button>
+
                 <div className="flex items-start justify-between mb-3">
                   <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center text-lg">
-                    {t.format === 'knockout' ? '🥊' : '📊'}
+                    {t.format === 'knockout' ? '🥊' : t.format === 'group_knockout' ? '🏆' : '📊'}
                   </div>
-                  <span className={`text-xs font-semibold px-2 py-1 rounded-full ${STATUS_COLORS[t.status]}`}>
+                  <span className={`text-xs font-semibold px-2 py-1 rounded-full mr-8 ${STATUS_COLORS[t.status]}`}>
                     {t.status}
                   </span>
                 </div>
                 <h3 className="font-semibold text-white group-hover:text-indigo-300 transition-colors mb-1 truncate">
                   {t.name}
                 </h3>
-                <p className="text-xs text-gray-400 capitalize mb-3">{t.format} · Up to {t.max_players} players</p>
+                <p className="text-xs text-gray-400 capitalize mb-3">
+                  {t.format === 'group_knockout' ? 'Group + Knockout' : t.format} · Up to {t.max_players} players
+                </p>
                 <p className="text-xs text-gray-500">
                   {new Date(t.created_at).toLocaleDateString()}
                 </p>
-              </Link>
+              </div>
             ))}
           </div>
         )}

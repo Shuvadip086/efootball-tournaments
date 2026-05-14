@@ -43,21 +43,32 @@ export default function PublicTournamentPage() {
 
   return (
     <div className="min-h-screen stadium-bg text-white">
+      {/* Top glow accent */}
+      <div className="field-accent-top" />
 
       {/* ── Hero header ── */}
-      <div className="relative overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-br from-indigo-950 via-gray-950 to-emerald-950 opacity-90" />
-        <div className="absolute inset-0 pitch-lines" />
-        <div className="absolute inset-0 bg-gradient-to-b from-transparent to-gray-950" />
-        {/* Centre circle accent */}
-        <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-64 rounded-full border border-white/5 opacity-50 pointer-events-none" />
-        <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-white/20 pointer-events-none" />
+      <div className="relative overflow-hidden border-b border-indigo-900/30">
+        {/* Pitch background layers */}
+        <div className="absolute inset-0 bg-gradient-to-br from-indigo-950 via-gray-950 to-emerald-950" />
+        <div className="absolute inset-0 pitch-lines opacity-70" />
+        <div className="absolute inset-0 football-dots opacity-60" />
 
-        <div className="relative max-w-3xl mx-auto px-4 py-12 text-center">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-indigo-500 to-emerald-500 mb-5 text-3xl shadow-2xl shadow-indigo-950/60">
+        {/* Centre circle */}
+        <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-72 h-72 rounded-full border-2 border-white/10 pointer-events-none" />
+        <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-white/40 pointer-events-none shadow-[0_0_12px_rgba(255,255,255,0.6)]" />
+
+        {/* Penalty arcs (decorative) */}
+        <div className="absolute -left-32 top-1/2 -translate-y-1/2 w-64 h-64 rounded-full border-2 border-white/8 pointer-events-none" />
+        <div className="absolute -right-32 top-1/2 -translate-y-1/2 w-64 h-64 rounded-full border-2 border-white/8 pointer-events-none" />
+
+        {/* Bottom fade */}
+        <div className="absolute inset-x-0 bottom-0 h-32 bg-gradient-to-b from-transparent to-gray-950" />
+
+        <div className="relative max-w-3xl mx-auto px-4 py-14 text-center">
+          <div className="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-gradient-to-br from-indigo-500 via-purple-500 to-emerald-500 mb-5 text-4xl shadow-2xl shadow-indigo-900/80 ring-4 ring-indigo-500/20">
             {icon}
           </div>
-          <h1 className="text-3xl sm:text-4xl font-black mb-2 leading-tight">{tournament.name}</h1>
+          <h1 className="text-4xl sm:text-5xl font-black mb-2 leading-tight match-day-text drop-shadow-lg">{tournament.name}</h1>
           {tournament.description && (
             <p className="text-gray-300 text-sm mb-4 max-w-md mx-auto">{tournament.description}</p>
           )}
@@ -80,22 +91,22 @@ export default function PublicTournamentPage() {
             </span>
           </div>
 
-          {/* Quick stats row */}
+          {/* Quick stats row — scoreboard style */}
           {fixtures.length > 0 && (
-            <div className="flex items-center justify-center gap-6 mt-6">
-              <div className="text-center">
-                <p className="text-2xl font-black text-white">{completedFixtures.length}</p>
-                <p className="text-[10px] text-gray-500 uppercase tracking-wider">Played</p>
+            <div className="inline-flex items-center justify-center gap-1 mt-6 bg-black/50 backdrop-blur border border-indigo-900/40 rounded-2xl px-5 py-3 shadow-xl shadow-black/40">
+              <div className="text-center px-4">
+                <p className="scoreboard-digit text-3xl text-emerald-400">{completedFixtures.length}</p>
+                <p className="text-[10px] text-emerald-300/70 uppercase tracking-widest mt-1">Played</p>
               </div>
-              <div className="w-px h-8 bg-gray-700" />
-              <div className="text-center">
-                <p className="text-2xl font-black text-indigo-400">{pendingFixtures.length}</p>
-                <p className="text-[10px] text-gray-500 uppercase tracking-wider">Remaining</p>
+              <div className="w-px h-10 bg-indigo-800/50" />
+              <div className="text-center px-4">
+                <p className="scoreboard-digit text-3xl text-indigo-300">{pendingFixtures.length}</p>
+                <p className="text-[10px] text-indigo-300/70 uppercase tracking-widest mt-1">Remaining</p>
               </div>
-              <div className="w-px h-8 bg-gray-700" />
-              <div className="text-center">
-                <p className="text-2xl font-black text-white">{fixtures.length}</p>
-                <p className="text-[10px] text-gray-500 uppercase tracking-wider">Total</p>
+              <div className="w-px h-10 bg-indigo-800/50" />
+              <div className="text-center px-4">
+                <p className="scoreboard-digit text-3xl text-white">{fixtures.length}</p>
+                <p className="text-[10px] text-gray-400 uppercase tracking-widest mt-1">Total</p>
               </div>
             </div>
           )}
@@ -530,10 +541,12 @@ function PublicFixtureRow({ fixture: f, players, playerMap, compact }) {
 // ── Section header ────────────────────────────────────────────────
 function SectionHeader({ icon, title }) {
   return (
-    <div className="flex items-center gap-2 mb-4">
-      <span className="text-lg">{icon}</span>
-      <h2 className="text-lg font-bold text-white">{title}</h2>
-      <div className="flex-1 h-px bg-gray-800 ml-2" />
+    <div className="flex items-center gap-3 mb-5">
+      <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-600 to-emerald-700 flex items-center justify-center text-lg shadow-lg shadow-indigo-950/50 ring-1 ring-indigo-500/30">
+        {icon}
+      </div>
+      <h2 className="text-xl font-black text-white tracking-tight uppercase">{title}</h2>
+      <div className="flex-1 h-[2px] bg-gradient-to-r from-indigo-700/50 via-indigo-700/20 to-transparent ml-2 rounded-full" />
     </div>
   )
 }

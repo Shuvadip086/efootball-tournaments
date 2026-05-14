@@ -184,8 +184,10 @@ export default function ManageTournamentPage() {
 
   return (
     <div className="min-h-screen stadium-bg text-white">
+      {/* Top glow accent */}
+      <div className="field-accent-top" />
       {/* Navbar */}
-      <nav className="border-b border-gray-800 bg-gray-900/80 backdrop-blur px-4 py-3">
+      <nav className="border-b border-indigo-900/40 bg-gray-900/70 backdrop-blur-md px-4 py-3">
         <div className="max-w-5xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Link to="/dashboard" className="text-gray-400 hover:text-white transition-colors text-sm">← Dashboard</Link>
@@ -226,7 +228,7 @@ export default function ManageTournamentPage() {
       <main className="max-w-5xl mx-auto px-4 py-6">
         {/* Header */}
         <div className="mb-1">
-          <h1 className="text-xl font-bold">{tournament?.name}</h1>
+          <h1 className="text-2xl sm:text-3xl font-black match-day-text tracking-tight">{tournament?.name}</h1>
           <p className="text-gray-400 text-sm">
             {formatLabel} · {players.length}/{tournament?.max_players} players
             {tournament?.format === 'group_knockout' && tournament?.num_groups && (

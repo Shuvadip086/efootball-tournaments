@@ -72,6 +72,8 @@ export default function ManageTournamentPage() {
   const regenGroupFixtures = async () => {
     setActionLoading(true)
     setActionError('')
+    // Clear old standings so the live page and stats don't show stale data
+    await supabase.from('standings').delete().eq('tournament_id', id)
     const { error: err } = await supabase.rpc('generate_group_stage_fixtures', {
       p_tournament_id: id,
       p_num_groups: tournament.num_groups ?? 4,
@@ -101,9 +103,11 @@ export default function ManageTournamentPage() {
       : tournament.format === 'group_knockout'
       ? 'group stage'
       : 'knockout'
-    if (!confirm(`Generate ${label} fixtures? This will clear any existing fixtures.`)) return
+    if (!confirm(`Generate ${label} fixtures? This will clear any existing fixtures and standings.`)) return
     setActionLoading(true)
     setActionError('')
+    // Clear standings so stats stay in sync with new fixtures
+    await supabase.from('standings').delete().eq('tournament_id', id)
     let err
     if (tournament.format === 'league') {
       ;({ error: err } = await supabase.rpc('generate_league_fixtures', { p_tournament_id: id }))
@@ -371,29 +375,65 @@ export default function ManageTournamentPage() {
                   </div>
 
                   {!manualMode ? (
-                    /* ── Auto mode: flat list with group badges ── */
+                    /* ── Auto mode: group table view ── */
                     <div>
-                      <p className="text-xs text-gray-500 mb-3">
-                        Groups will be auto-assigned randomly when you click Regenerate Fixtures.
-                        {players.some(p => p.group_number) && ' Current assignments shown below.'}
+                      <p className="text-xs text-gray-500 mb-4">
+                        {players.some(p => p.group_number)
+                          ? 'Current group assignments. Click Regenerate Fixtures to rebuild with these groups.'
+                          : 'Groups will be auto-assigned randomly when you click Regenerate Fixtures.'}
                       </p>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        {players.map((p, i) => (
-                          <div key={p.id} className="flex items-center justify-between bg-gray-900 border border-gray-800 rounded-xl px-4 py-3">
-                            <div className="flex items-center gap-3">
-                              <PlayerAvatar player={p} index={i} size="md" badge />
-                              <div>
-                                <span className="font-medium text-white">{p.name}</span>
-                                {p.group_number
-                                  ? <p className="text-[10px] text-indigo-400 font-semibold">Group {GROUP_LETTERS[p.group_number - 1]}</p>
-                                  : <p className="text-[10px] text-gray-500">Unassigned</p>
-                                }
+
+                      {/* Group tables grid */}
+                      {players.some(p => p.group_number) ? (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          {Array.from({ length: tournament.num_groups ?? 4 }, (_, i) => i + 1).map(g => {
+                            const gPlayers = players.filter(p => p.group_number === g)
+                            if (gPlayers.length === 0) return null
+                            return (
+                              <div key={g} className="rounded-xl border border-gray-800 overflow-hidden">
+                                {/* Group header */}
+                                <div className="flex items-center gap-2 px-3 py-2.5 bg-gray-900 border-b border-gray-800">
+                                  <div className="w-6 h-6 rounded-lg bg-indigo-600 flex items-center justify-center text-[11px] font-black text-white">
+                                    {GROUP_LETTERS[g - 1]}
+                                  </div>
+                                  <span className="text-sm font-bold text-gray-200">Group {GROUP_LETTERS[g - 1]}</span>
+                                  <span className="ml-auto text-xs text-gray-600">{gPlayers.length} players</span>
+                                </div>
+                                {/* Player rows */}
+                                <div className="divide-y divide-gray-800/60 bg-gray-950">
+                                  {gPlayers.map((p, pos) => {
+                                    const globalIdx = players.findIndex(x => x.id === p.id)
+                                    return (
+                                      <div key={p.id} className="flex items-center gap-3 px-3 py-2.5">
+                                        <span className="text-xs text-gray-600 w-4 shrink-0">{pos + 1}</span>
+                                        <PlayerAvatar player={p} index={globalIdx} size="sm" />
+                                        <span className="text-sm text-white font-medium flex-1 truncate">{p.name}</span>
+                                        <button
+                                          onClick={() => removePlayer(p.id)}
+                                          className="text-gray-700 hover:text-red-400 transition-colors text-xs shrink-0"
+                                        >✕</button>
+                                      </div>
+                                    )
+                                  })}
+                                </div>
                               </div>
+                            )
+                          })}
+                        </div>
+                      ) : (
+                        /* No groups assigned yet — flat list */
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          {players.map((p, i) => (
+                            <div key={p.id} className="flex items-center justify-between bg-gray-900 border border-gray-800 rounded-xl px-4 py-3">
+                              <div className="flex items-center gap-3">
+                                <PlayerAvatar player={p} index={i} size="md" badge />
+                                <span className="font-medium text-white">{p.name}</span>
+                              </div>
+                              <button onClick={() => removePlayer(p.id)} className="text-gray-600 hover:text-red-400 transition-colors text-sm">Remove</button>
                             </div>
-                            <button onClick={() => removePlayer(p.id)} className="text-gray-600 hover:text-red-400 transition-colors text-sm">Remove</button>
-                          </div>
-                        ))}
-                      </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
 
                   ) : (

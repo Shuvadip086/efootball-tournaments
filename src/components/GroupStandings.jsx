@@ -1,14 +1,29 @@
+import PlayerAvatar from './PlayerAvatar'
+
 const GROUP_LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
 
 function GroupTable({ groupLetter, players, standings, teamsAdvancing = 2 }) {
-  const playerMap = Object.fromEntries(players.map(p => [p.id, p]))
+  // Merge: use real standings row if it exists, otherwise zero-stats placeholder
+  const rows = players.map(p => {
+    const s = standings.find(s => s.player_id === p.id)
+    return s ?? {
+      id: `zero-${p.id}`,
+      player_id: p.id,
+      played: 0, won: 0, drawn: 0, lost: 0,
+      goals_for: 0, goals_against: 0, goal_difference: 0, points: 0,
+    }
+  })
 
-  // sort by points → GD → GF
-  const sorted = [...standings].sort((a, b) =>
+  // Sort: points → GD → GF; if all zero keep original order
+  const sorted = [...rows].sort((a, b) =>
     b.points - a.points ||
     b.goal_difference - a.goal_difference ||
     b.goals_for - a.goals_for
   )
+
+  const playerMap = Object.fromEntries(players.map(p => [p.id, p]))
+  // Global player index for avatar colour (passed via player object's _idx if set)
+  const getIdx = (playerId) => players.findIndex(p => p.id === playerId)
 
   return (
     <div className="mb-6">
@@ -39,6 +54,7 @@ function GroupTable({ groupLetter, players, standings, teamsAdvancing = 2 }) {
             {sorted.map((s, i) => {
               const player = playerMap[s.player_id]
               const advancing = i < teamsAdvancing
+              const pIdx = getIdx(s.player_id)
               return (
                 <tr
                   key={s.id}
@@ -53,9 +69,7 @@ function GroupTable({ groupLetter, players, standings, teamsAdvancing = 2 }) {
                   </td>
                   <td className="px-3 py-2.5 font-medium text-white">
                     <div className="flex items-center gap-2">
-                      <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 ${advancing ? 'bg-indigo-600' : 'bg-gray-700'}`}>
-                        {(player?.name ?? '?')[0].toUpperCase()}
-                      </div>
+                      <PlayerAvatar player={player} index={pIdx} size="xs" />
                       <span className="truncate">{player?.name ?? '—'}</span>
                     </div>
                   </td>
@@ -77,9 +91,12 @@ function GroupTable({ groupLetter, players, standings, teamsAdvancing = 2 }) {
   )
 }
 
-export default function GroupStandings({ standings, players, numGroups, teamsAdvancing = 2 }) {
-  if (!standings?.length) {
-    return <p className="text-gray-400 text-sm py-4 text-center">No standings yet.</p>
+export default function GroupStandings({ standings = [], players, numGroups, teamsAdvancing = 2 }) {
+  // Show as long as players are assigned to groups
+  const hasGroups = players.some(p => p.group_number)
+
+  if (!hasGroups) {
+    return <p className="text-gray-400 text-sm py-4 text-center">No group assignments yet.</p>
   }
 
   const groups = []

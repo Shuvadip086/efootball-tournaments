@@ -121,7 +121,7 @@ export default function PublicTournamentPage() {
 
         {tournament.format === 'group_knockout' && (
           <>
-            {standings.length > 0 && (
+            {groupFixtures.length > 0 && (
               <section>
                 <SectionHeader icon="📊" title="Group Standings" />
                 <GroupStandings

@@ -65,6 +65,13 @@ export default function ManageTournamentPage() {
 
   const assignPlayerGroup = async (playerId, groupNum) => {
     await supabase.from('players').update({ group_number: groupNum }).eq('id', playerId)
+    // Auto-regenerate group stage fixtures whenever a group is assigned
+    if (tournament?.format === 'group_knockout') {
+      await supabase.rpc('generate_group_stage_fixtures', {
+        p_tournament_id: id,
+        p_num_groups: tournament.num_groups ?? 4,
+      })
+    }
     refetch()
   }
 
@@ -421,8 +428,8 @@ export default function ManageTournamentPage() {
                   </div>
 
                   {fixtures.length > 0 && (
-                    <p className="text-xs text-amber-400 mt-3">
-                      ⚠ Fixtures already generated. If you reassign groups, regenerate fixtures from the action bar above.
+                    <p className="text-xs text-emerald-400 mt-3">
+                      ✓ Fixtures automatically update when you reassign players to groups.
                     </p>
                   )}
                 </div>

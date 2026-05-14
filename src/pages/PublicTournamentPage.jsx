@@ -8,6 +8,7 @@ import PlayerAvatar from '../components/PlayerAvatar'
 
 const FORMAT_ICON  = { league: '📊', knockout: '🥊', group_knockout: '🏆' }
 const FORMAT_LABEL = { league: 'Round Robin', knockout: 'Single Elimination', group_knockout: 'Group + Knockout' }
+const GROUP_LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
 
 export default function PublicTournamentPage() {
   const { slug } = useParams()
@@ -15,10 +16,11 @@ export default function PublicTournamentPage() {
   const realtimeStandings = useRealtimeStandings(tournament?.id)
   const standings = realtimeStandings.length ? realtimeStandings : []
 
-  const completedFixtures  = fixtures.filter(f => f.status === 'completed')
   const groupFixtures      = fixtures.filter(f => f.phase === 'group')
   const knockoutFixtures   = fixtures.filter(f => f.phase === 'knockout')
   const regularFixtures    = fixtures.filter(f => f.phase === 'regular' || !f.phase)
+  const completedFixtures  = fixtures.filter(f => f.status === 'completed')
+  const pendingFixtures    = fixtures.filter(f => f.status === 'pending')
   const playerMap          = Object.fromEntries(players.map(p => [p.id, p]))
 
   if (loading) return (
@@ -42,7 +44,6 @@ export default function PublicTournamentPage() {
 
       {/* ── Hero header ── */}
       <div className="relative overflow-hidden">
-        {/* Pitch-grid background */}
         <div className="absolute inset-0 bg-gradient-to-br from-indigo-950 via-gray-950 to-emerald-950 opacity-90" />
         <div className="absolute inset-0 opacity-[0.04]"
              style={{ backgroundImage: 'repeating-linear-gradient(0deg,transparent,transparent 59px,#fff 59px,#fff 60px),repeating-linear-gradient(90deg,transparent,transparent 59px,#fff 59px,#fff 60px)' }} />
@@ -74,6 +75,26 @@ export default function PublicTournamentPage() {
               {tournament.status === 'active' ? '🟢 Live' : tournament.status === 'completed' ? '🏆 Completed' : '⏳ Draft'}
             </span>
           </div>
+
+          {/* Quick stats row */}
+          {fixtures.length > 0 && (
+            <div className="flex items-center justify-center gap-6 mt-6">
+              <div className="text-center">
+                <p className="text-2xl font-black text-white">{completedFixtures.length}</p>
+                <p className="text-[10px] text-gray-500 uppercase tracking-wider">Played</p>
+              </div>
+              <div className="w-px h-8 bg-gray-700" />
+              <div className="text-center">
+                <p className="text-2xl font-black text-indigo-400">{pendingFixtures.length}</p>
+                <p className="text-[10px] text-gray-500 uppercase tracking-wider">Remaining</p>
+              </div>
+              <div className="w-px h-8 bg-gray-700" />
+              <div className="text-center">
+                <p className="text-2xl font-black text-white">{fixtures.length}</p>
+                <p className="text-[10px] text-gray-500 uppercase tracking-wider">Total</p>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -90,7 +111,6 @@ export default function PublicTournamentPage() {
         {tournament.format === 'knockout' && fixtures.length > 0 && (
           <section>
             <SectionHeader icon="🥊" title="Bracket" />
-            {/* Full-width bracket with horizontal scroll */}
             <div className="-mx-4 px-4 overflow-x-auto">
               <div className="min-w-[500px]">
                 <KnockoutBracket fixtures={regularFixtures.length ? regularFixtures : fixtures} players={players} />
@@ -101,7 +121,6 @@ export default function PublicTournamentPage() {
 
         {tournament.format === 'group_knockout' && (
           <>
-            {/* Group standings */}
             {standings.length > 0 && (
               <section>
                 <SectionHeader icon="📊" title="Group Standings" />
@@ -113,8 +132,6 @@ export default function PublicTournamentPage() {
                 />
               </section>
             )}
-
-            {/* Knockout bracket */}
             {knockoutFixtures.length > 0 && (
               <section>
                 <SectionHeader icon="🥊" title="Knockout Bracket" />
@@ -128,42 +145,19 @@ export default function PublicTournamentPage() {
           </>
         )}
 
-        {/* ── Recent results ── */}
-        {completedFixtures.length > 0 && (
+        {/* ── Fixtures at a glance ── */}
+        {fixtures.length > 0 && (
           <section>
-            <SectionHeader icon="🎮" title="Recent Results" />
-            <div className="space-y-2">
-              {[...completedFixtures].reverse().slice(0, 10).map(f => {
-                const home = playerMap[f.home_player_id]
-                const away = playerMap[f.away_player_id]
-                const hIdx = players.findIndex(p => p.id === f.home_player_id)
-                const aIdx = players.findIndex(p => p.id === f.away_player_id)
-                const homeWon = f.home_score > f.away_score
-                const awayWon = f.away_score > f.home_score
-                return (
-                  <div key={f.id} className="bg-gray-900/80 border border-gray-800/60 rounded-xl px-4 py-3 backdrop-blur-sm">
-                    <div className="flex items-center gap-3">
-                      <div className={`flex items-center gap-2 flex-1 justify-end min-w-0`}>
-                        <span className={`text-sm truncate ${homeWon ? 'font-bold text-white' : 'text-gray-400'}`}>{home?.name}</span>
-                        <PlayerAvatar player={home} index={hIdx} size="sm" />
-                      </div>
-                      <div className="text-center shrink-0 min-w-[56px]">
-                        <span className="text-base font-black text-white tabular-nums">
-                          {f.home_score} – {f.away_score}
-                        </span>
-                        {f.leg > 1 && (
-                          <p className="text-[9px] text-gray-600 font-medium">Leg {f.leg}</p>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2 flex-1 justify-start min-w-0">
-                        <PlayerAvatar player={away} index={aIdx} size="sm" />
-                        <span className={`text-sm truncate ${awayWon ? 'font-bold text-white' : 'text-gray-400'}`}>{away?.name}</span>
-                      </div>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
+            <SectionHeader icon="📅" title="Fixtures" />
+            <FixturesAtAGlance
+              tournament={tournament}
+              fixtures={fixtures}
+              groupFixtures={groupFixtures}
+              knockoutFixtures={knockoutFixtures}
+              regularFixtures={regularFixtures}
+              players={players}
+              playerMap={playerMap}
+            />
           </section>
         )}
 
@@ -177,7 +171,7 @@ export default function PublicTournamentPage() {
                 <div className="min-w-0">
                   <p className="text-sm font-medium truncate text-white">{p.name}</p>
                   {p.group_number && (
-                    <p className="text-[10px] text-gray-500">Group {'ABCDEFGHIJKLMNOPQRSTUVWXYZ'[p.group_number - 1]}</p>
+                    <p className="text-[10px] text-gray-500">Group {GROUP_LETTERS[p.group_number - 1]}</p>
                   )}
                 </div>
               </div>
@@ -193,6 +187,183 @@ export default function PublicTournamentPage() {
   )
 }
 
+// ── Fixtures at a glance ──────────────────────────────────────────
+function FixturesAtAGlance({ tournament, fixtures, groupFixtures, knockoutFixtures, regularFixtures, players, playerMap }) {
+  const allFixtures = tournament.format === 'group_knockout'
+    ? [...groupFixtures, ...knockoutFixtures]
+    : tournament.format === 'knockout'
+    ? regularFixtures.length ? regularFixtures : fixtures
+    : fixtures  // league: all fixtures
+
+  if (tournament.format === 'league') {
+    const rounds = [...new Set(allFixtures.map(f => f.round))].sort((a, b) => a - b)
+    return (
+      <div className="space-y-4">
+        {rounds.map(round => {
+          const rFixtures = allFixtures.filter(f => f.round === round)
+          const allDone = rFixtures.every(f => f.status === 'completed')
+          const anyDone = rFixtures.some(f => f.status === 'completed')
+          return (
+            <div key={round}>
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Round {round}</span>
+                {allDone
+                  ? <span className="text-[10px] text-green-400 font-semibold">✓ Complete</span>
+                  : anyDone
+                  ? <span className="text-[10px] text-indigo-400 font-semibold">In progress</span>
+                  : null}
+              </div>
+              <div className="space-y-1.5">
+                {rFixtures.map(f => <PublicFixtureRow key={f.id} fixture={f} players={players} playerMap={playerMap} />)}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    )
+  }
+
+  if (tournament.format === 'group_knockout') {
+    const numGroups = tournament.num_groups ?? 4
+    return (
+      <div className="space-y-6">
+        {/* Group stage fixtures */}
+        {groupFixtures.length > 0 && (
+          <div>
+            <p className="text-xs font-bold uppercase tracking-wider text-indigo-400 mb-3">Group Stage</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {Array.from({ length: numGroups }, (_, i) => i + 1).map(g => {
+                const gFix = groupFixtures.filter(f => {
+                  const hp = playerMap[f.home_player_id]
+                  return hp?.group_number === g
+                })
+                if (!gFix.length) return null
+                return (
+                  <div key={g} className="bg-gray-900/60 border border-gray-800 rounded-xl overflow-hidden">
+                    <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-800 bg-gray-900">
+                      <div className="w-5 h-5 rounded bg-indigo-700 flex items-center justify-center text-[10px] font-black text-white">
+                        {GROUP_LETTERS[g - 1]}
+                      </div>
+                      <span className="text-xs font-bold text-gray-300 uppercase tracking-wide">Group {GROUP_LETTERS[g - 1]}</span>
+                      <span className="ml-auto text-[10px] text-gray-600">
+                        {gFix.filter(f => f.status === 'completed').length}/{gFix.length} played
+                      </span>
+                    </div>
+                    <div className="divide-y divide-gray-800/60">
+                      {gFix.map(f => <PublicFixtureRow key={f.id} fixture={f} players={players} playerMap={playerMap} compact />)}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Knockout stage fixtures */}
+        {knockoutFixtures.length > 0 && (
+          <div>
+            <p className="text-xs font-bold uppercase tracking-wider text-amber-400 mb-3">Knockout Stage</p>
+            {(() => {
+              const rounds = [...new Set(knockoutFixtures.map(f => f.round))].sort((a, b) => a - b)
+              const totalRounds = rounds.length
+              const roundNames = ['Final', 'Semi-Final', 'Quarter-Final', 'Round of 16', 'Round of 32']
+              return (
+                <div className="space-y-3">
+                  {rounds.map((round, idx) => {
+                    const rFix = knockoutFixtures.filter(f => f.round === round)
+                    const name = roundNames[totalRounds - 1 - idx] ?? `Round ${round}`
+                    return (
+                      <div key={round}>
+                        <p className="text-xs text-gray-500 font-semibold mb-2">{name}</p>
+                        <div className="space-y-1.5">
+                          {rFix.map(f => <PublicFixtureRow key={f.id} fixture={f} players={players} playerMap={playerMap} />)}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )
+            })()}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // Knockout: show by round
+  const rounds = [...new Set(allFixtures.map(f => f.round))].sort((a, b) => a - b)
+  const totalRounds = rounds.length
+  const roundNames = ['Final', 'Semi-Final', 'Quarter-Final', 'Round of 16', 'Round of 32']
+  return (
+    <div className="space-y-4">
+      {rounds.map((round, idx) => {
+        const rFix = allFixtures.filter(f => f.round === round)
+        const name = roundNames[totalRounds - 1 - idx] ?? `Round ${round}`
+        return (
+          <div key={round}>
+            <p className="text-xs text-gray-500 font-semibold uppercase tracking-wider mb-2">{name}</p>
+            <div className="space-y-1.5">
+              {rFix.map(f => <PublicFixtureRow key={f.id} fixture={f} players={players} playerMap={playerMap} />)}
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+// ── Single public fixture row ─────────────────────────────────────
+function PublicFixtureRow({ fixture: f, players, playerMap, compact }) {
+  const home = playerMap[f.home_player_id]
+  const away = playerMap[f.away_player_id]
+  const hIdx = players.findIndex(p => p.id === f.home_player_id)
+  const aIdx = players.findIndex(p => p.id === f.away_player_id)
+  const done = f.status === 'completed'
+  const homeWon = done && f.home_score > f.away_score
+  const awayWon = done && f.away_score > f.home_score
+
+  return (
+    <div className={`flex items-center gap-2 ${compact ? 'px-3 py-2.5' : 'bg-gray-900/80 border border-gray-800/60 rounded-xl px-3 py-2.5'}`}>
+      {/* Home player */}
+      <div className="flex items-center gap-1.5 flex-1 justify-end min-w-0">
+        <span className={`text-xs truncate ${homeWon ? 'font-bold text-white' : done ? 'text-gray-400' : 'text-gray-200'}`}>
+          {home?.name ?? '—'}
+        </span>
+        <PlayerAvatar player={home} index={hIdx} size="xs" />
+      </div>
+
+      {/* Score / vs */}
+      <div className="shrink-0 min-w-[52px] text-center">
+        {done ? (
+          <span className={`text-sm font-black tabular-nums ${homeWon || awayWon ? 'text-white' : 'text-gray-400'}`}>
+            {f.home_score} – {f.away_score}
+          </span>
+        ) : (
+          <span className="text-xs font-bold text-gray-600 bg-gray-800 px-2 py-0.5 rounded-full">vs</span>
+        )}
+        {f.leg > 1 && <p className="text-[9px] text-gray-700">Leg {f.leg}</p>}
+      </div>
+
+      {/* Away player */}
+      <div className="flex items-center gap-1.5 flex-1 justify-start min-w-0">
+        <PlayerAvatar player={away} index={aIdx} size="xs" />
+        <span className={`text-xs truncate ${awayWon ? 'font-bold text-white' : done ? 'text-gray-400' : 'text-gray-200'}`}>
+          {away?.name ?? '—'}
+        </span>
+      </div>
+
+      {/* Status dot */}
+      <div className="shrink-0">
+        {done
+          ? <span className="w-1.5 h-1.5 rounded-full bg-green-500 block" title="Completed" />
+          : <span className="w-1.5 h-1.5 rounded-full bg-gray-700 block" title="Pending" />
+        }
+      </div>
+    </div>
+  )
+}
+
+// ── Section header ────────────────────────────────────────────────
 function SectionHeader({ icon, title }) {
   return (
     <div className="flex items-center gap-2 mb-4">

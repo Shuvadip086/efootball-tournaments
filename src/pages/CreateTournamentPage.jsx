@@ -125,6 +125,46 @@ function SwissSVG() {
   )
 }
 
+function GroupKnockoutSVG() {
+  const accent = '#6366f1'
+  const dim = '#374151'
+  return (
+    <svg viewBox="0 0 130 80" className="w-full h-14" fill="none">
+      {/* Group A mini grid */}
+      <text x="9" y="8" textAnchor="middle" fill="#9ca3af" fontSize="6" fontWeight="bold">A</text>
+      {[0,1,2].map(i => <rect key={i} x={4+i*9} y={10} width="7" height="5" rx="1" fill={i===0?accent:dim} opacity={i===0?0.8:0.5} />)}
+      {/* Group B mini grid */}
+      <text x="44" y="8" textAnchor="middle" fill="#9ca3af" fontSize="6" fontWeight="bold">B</text>
+      {[0,1,2].map(i => <rect key={i} x={39+i*9} y={10} width="7" height="5" rx="1" fill={i===0?dim:i===1?accent:dim} opacity={i===1?0.8:0.5} />)}
+      {/* Group C mini grid */}
+      <text x="79" y="8" textAnchor="middle" fill="#9ca3af" fontSize="6" fontWeight="bold">C</text>
+      {[0,1,2].map(i => <rect key={i} x={74+i*9} y={10} width="7" height="5" rx="1" fill={i===1?accent:dim} opacity={i===1?0.8:0.5} />)}
+      {/* Group D mini grid */}
+      <text x="114" y="8" textAnchor="middle" fill="#9ca3af" fontSize="6" fontWeight="bold">D</text>
+      {[0,1,2].map(i => <rect key={i} x={109+i*9} y={10} width="7" height="5" rx="1" fill={i===2?accent:dim} opacity={i===2?0.8:0.5} />)}
+      {/* Arrow down */}
+      <line x1="65" y1="20" x2="65" y2="30" stroke="#4b5563" strokeWidth="1.5"/>
+      <polygon points="61,28 65,34 69,28" fill="#4b5563"/>
+      {/* Knockout bracket */}
+      <rect x="10" y="38" width="28" height="8" rx="2" fill={dim} opacity="0.7"/>
+      <rect x="10" y="50" width="28" height="8" rx="2" fill={dim} opacity="0.5"/>
+      <line x1="38" y1="42" x2="44" y2="42" stroke={accent} strokeWidth="1.5"/>
+      <line x1="38" y1="54" x2="42" y2="54" stroke={accent} strokeWidth="1.5"/>
+      <line x1="42" y1="42" x2="42" y2="54" stroke={accent} strokeWidth="1.5"/>
+      <line x1="42" y1="48" x2="48" y2="48" stroke={accent} strokeWidth="1.5"/>
+      <rect x="92" y="38" width="28" height="8" rx="2" fill={dim} opacity="0.7"/>
+      <rect x="92" y="50" width="28" height="8" rx="2" fill={dim} opacity="0.5"/>
+      <line x1="88" y1="42" x2="84" y2="42" stroke={accent} strokeWidth="1.5"/>
+      <line x1="88" y1="54" x2="84" y2="54" stroke={accent} strokeWidth="1.5"/>
+      <line x1="84" y1="42" x2="84" y2="54" stroke={accent} strokeWidth="1.5"/>
+      <line x1="84" y1="48" x2="78" y2="48" stroke={accent} strokeWidth="1.5"/>
+      {/* Final */}
+      <rect x="52" y="42" width="26" height="12" rx="3" fill={accent} opacity="0.9"/>
+      <text x="65" y="51" textAnchor="middle" fill="white" fontSize="7" fontWeight="bold">FINAL</text>
+    </svg>
+  )
+}
+
 function FreeForAllSVG() {
   const accent = '#6366f1'
   const dim = '#374151'
@@ -180,6 +220,13 @@ const FORMATS = [
     available: true,
   },
   {
+    id: 'group_knockout',
+    label: 'Group + Knockout',
+    desc: 'Players compete in round-robin groups; top finishers advance to a knockout bracket.',
+    svg: <GroupKnockoutSVG />,
+    available: true,
+  },
+  {
     id: 'swiss',
     label: 'Swiss',
     desc: 'Participants are paired to ensure each competitor plays opponents with a similar running score.',
@@ -226,6 +273,7 @@ export default function CreateTournamentPage() {
     name: '',
     description: '',
     format: 'knockout',
+    num_groups: 4,
     participantsText: '',
     randomizeSeeds: false,
     thirdPlace: false,
@@ -253,6 +301,7 @@ export default function CreateTournamentPage() {
           description: form.description.trim() || null,
           format: form.format,
           max_players: parsedPlayers.length,
+          num_groups: form.format === 'group_knockout' ? form.num_groups : 4,
           slug,
         })
         .select()
@@ -345,6 +394,48 @@ export default function CreateTournamentPage() {
                 onChange={v => set('thirdPlace', v)}
                 label="Include a match for 3rd place"
               />
+            </section>
+            <div className="border-t border-gray-800 mb-10" />
+          </>
+        )}
+
+        {form.format === 'group_knockout' && (
+          <>
+            <section className="mb-10">
+              <h2 className="text-xl font-bold mb-1">Group Stage Settings</h2>
+              <p className="text-sm text-gray-400 mb-5">
+                Players are split evenly across groups. Top 2 from each group advance to the knockout bracket.
+              </p>
+              <div>
+                <label className="block text-sm text-gray-400 mb-2">Number of Groups</label>
+                <div className="flex gap-3 flex-wrap">
+                  {[2, 3, 4, 6, 8].map(n => (
+                    <button
+                      key={n}
+                      type="button"
+                      onClick={() => set('num_groups', n)}
+                      className={`w-14 h-12 rounded-xl border-2 font-bold text-sm transition-all ${
+                        form.num_groups === n
+                          ? 'border-indigo-500 bg-indigo-950/40 text-white'
+                          : 'border-gray-700 bg-gray-900 text-gray-400 hover:border-gray-500'
+                      }`}
+                    >
+                      {n}
+                    </button>
+                  ))}
+                </div>
+                {parsedPlayers.length > 0 && (
+                  <p className="text-xs text-gray-500 mt-3">
+                    {parsedPlayers.length} players ÷ {form.num_groups} groups
+                    = ~{Math.ceil(parsedPlayers.length / form.num_groups)} players per group
+                    {parsedPlayers.length < form.num_groups * 2 && (
+                      <span className="text-amber-400 ml-2">
+                        ⚠ Need at least {form.num_groups * 2} players for {form.num_groups} groups
+                      </span>
+                    )}
+                  </p>
+                )}
+              </div>
             </section>
             <div className="border-t border-gray-800 mb-10" />
           </>

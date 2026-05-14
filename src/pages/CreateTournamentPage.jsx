@@ -274,6 +274,8 @@ export default function CreateTournamentPage() {
     description: '',
     format: 'knockout',
     num_groups: 4,
+    teams_advancing: 2,
+    home_away: false,
     participantsText: '',
     randomizeSeeds: false,
     thirdPlace: false,
@@ -302,6 +304,8 @@ export default function CreateTournamentPage() {
           format: form.format,
           max_players: parsedPlayers.length,
           num_groups: form.format === 'group_knockout' ? form.num_groups : 4,
+          teams_advancing: form.format === 'group_knockout' ? form.teams_advancing : 2,
+          home_away: form.home_away,
           slug,
         })
         .select()
@@ -403,39 +407,84 @@ export default function CreateTournamentPage() {
           <>
             <section className="mb-10">
               <h2 className="text-xl font-bold mb-1">Group Stage Settings</h2>
-              <p className="text-sm text-gray-400 mb-5">
-                Players are split evenly across groups. Top 2 from each group advance to the knockout bracket.
+              <p className="text-sm text-gray-400 mb-6">
+                Players are split evenly across groups. Configure how many advance to the knockout bracket.
               </p>
-              <div>
-                <label className="block text-sm text-gray-400 mb-2">Number of Groups</label>
+
+              {/* Number of groups */}
+              <div className="mb-6">
+                <label className="block text-sm font-medium text-gray-300 mb-2">Number of Groups</label>
                 <div className="flex gap-3 flex-wrap">
                   {[2, 3, 4, 6, 8].map(n => (
-                    <button
-                      key={n}
-                      type="button"
-                      onClick={() => set('num_groups', n)}
+                    <button key={n} type="button" onClick={() => set('num_groups', n)}
                       className={`w-14 h-12 rounded-xl border-2 font-bold text-sm transition-all ${
                         form.num_groups === n
                           ? 'border-indigo-500 bg-indigo-950/40 text-white'
                           : 'border-gray-700 bg-gray-900 text-gray-400 hover:border-gray-500'
                       }`}
-                    >
-                      {n}
-                    </button>
+                    >{n}</button>
                   ))}
                 </div>
-                {parsedPlayers.length > 0 && (
-                  <p className="text-xs text-gray-500 mt-3">
-                    {parsedPlayers.length} players ÷ {form.num_groups} groups
-                    = ~{Math.ceil(parsedPlayers.length / form.num_groups)} players per group
-                    {parsedPlayers.length < form.num_groups * 2 && (
-                      <span className="text-amber-400 ml-2">
-                        ⚠ Need at least {form.num_groups * 2} players for {form.num_groups} groups
-                      </span>
-                    )}
-                  </p>
-                )}
               </div>
+
+              {/* Teams advancing */}
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-300 mb-2">Teams advancing per group</label>
+                <div className="flex gap-3 flex-wrap">
+                  {[1, 2, 3, 4].map(n => {
+                    const total = form.num_groups * n
+                    const roundName = total >= 16 ? 'Round of 16' : total === 8 ? 'Quarter-Finals' : total === 4 ? 'Semi-Finals' : total === 2 ? 'Final' : `${total} players`
+                    return (
+                      <button key={n} type="button" onClick={() => set('teams_advancing', n)}
+                        className={`px-4 py-2.5 rounded-xl border-2 font-bold text-sm transition-all flex flex-col items-center gap-0.5 ${
+                          form.teams_advancing === n
+                            ? 'border-emerald-500 bg-emerald-950/30 text-white'
+                            : 'border-gray-700 bg-gray-900 text-gray-400 hover:border-gray-500'
+                        }`}
+                      >
+                        <span>{n}</span>
+                        <span className="text-[9px] font-normal text-gray-500">{roundName}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {parsedPlayers.length > 0 && (
+                <p className="text-xs text-gray-500">
+                  {parsedPlayers.length} players ÷ {form.num_groups} groups
+                  = ~{Math.ceil(parsedPlayers.length / form.num_groups)} per group
+                  · Top {form.teams_advancing} advance → {form.num_groups * form.teams_advancing} players in knockout
+                  {parsedPlayers.length < form.num_groups * 2 && (
+                    <span className="text-amber-400 ml-2">
+                      ⚠ Need at least {form.num_groups * 2} players
+                    </span>
+                  )}
+                </p>
+              )}
+            </section>
+            <div className="border-t border-gray-800 mb-10" />
+          </>
+        )}
+
+        {/* ── Home & Away ── */}
+        {['knockout', 'league', 'group_knockout'].includes(form.format) && (
+          <>
+            <section className="mb-10">
+              <h2 className="text-xl font-bold mb-1">Match Settings</h2>
+              <p className="text-sm text-gray-400 mb-5">Configure how each matchup is played.</p>
+              <Toggle
+                checked={form.home_away}
+                onChange={v => set('home_away', v)}
+                label="Home & Away — each pair plays twice (home leg + away leg)"
+              />
+              {form.home_away && (
+                <p className="text-xs text-gray-500 mt-2 ml-14">
+                  {form.format === 'league' || form.format === 'group_knockout'
+                    ? 'Doubles total fixtures. Both legs count towards standings.'
+                    : 'Knockout rounds settled by aggregate score over 2 legs.'}
+                </p>
+              )}
             </section>
             <div className="border-t border-gray-800 mb-10" />
           </>

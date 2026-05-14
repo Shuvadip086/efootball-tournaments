@@ -5,6 +5,8 @@ import { useTournament } from '../hooks/useTournament'
 import LeagueTable from '../components/LeagueTable'
 import KnockoutBracket from '../components/KnockoutBracket'
 import GroupStandings from '../components/GroupStandings'
+import PlayerAvatar from '../components/PlayerAvatar'
+import ShareableFixtureCard from '../components/ShareableFixtureCard'
 
 const GROUP_LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
 const TABS = ['Players', 'Fixtures', 'Results', 'Stats']
@@ -18,6 +20,7 @@ export default function ManageTournamentPage() {
   const [actionError, setActionError] = useState('')
   const [scoreModal, setScoreModal] = useState(null)
   const [scores, setScores] = useState({ home: '', away: '' })
+  const [showFixtureCard, setShowFixtureCard] = useState(false)
 
   // ── Derived fixture sets ──────────────────────────────────────
   const groupFixtures    = fixtures.filter(f => f.phase === 'group')
@@ -89,7 +92,7 @@ export default function ManageTournamentPage() {
     setActionError('')
     const { error: err } = await supabase.rpc('advance_group_to_knockout', {
       p_tournament_id:   id,
-      p_teams_advancing: 2,
+      p_teams_advancing: tournament.teams_advancing ?? 2,
     })
     if (err) setActionError(err.message)
     setActionLoading(false)
@@ -152,6 +155,14 @@ export default function ManageTournamentPage() {
             <span className="font-semibold hidden sm:inline truncate max-w-xs">{tournament?.name}</span>
           </div>
           <div className="flex items-center gap-2">
+            {fixtures.length > 0 && (
+              <button
+                onClick={() => setShowFixtureCard(true)}
+                className="text-xs text-gray-400 hover:text-white bg-gray-800 hover:bg-gray-700 border border-gray-700 px-2.5 py-1.5 rounded-lg transition-colors font-medium flex items-center gap-1"
+              >
+                📋 <span className="hidden sm:inline">Fixture Card</span>
+              </button>
+            )}
             <span className={`text-xs font-semibold px-2 py-1 rounded-full ${
               tournament?.status === 'active'    ? 'bg-green-800 text-green-300' :
               tournament?.status === 'completed' ? 'bg-indigo-800 text-indigo-300' :
@@ -181,8 +192,9 @@ export default function ManageTournamentPage() {
           <p className="text-gray-400 text-sm">
             {formatLabel} · {players.length}/{tournament?.max_players} players
             {tournament?.format === 'group_knockout' && tournament?.num_groups && (
-              <span className="ml-1">· {tournament.num_groups} groups</span>
+              <span className="ml-1">· {tournament.num_groups} groups · Top {tournament.teams_advancing ?? 2} advance</span>
             )}
+            {tournament?.home_away && <span className="ml-1">· Home &amp; Away</span>}
           </p>
         </div>
 
@@ -329,13 +341,14 @@ export default function ManageTournamentPage() {
               ) : (
                 /* Default flat list */
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {players.map(p => (
+                  {players.map((p, i) => (
                     <div key={p.id} className="flex items-center justify-between bg-gray-900 border border-gray-800 rounded-xl px-4 py-3">
                       <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 bg-indigo-700 rounded-full flex items-center justify-center text-sm font-bold">
-                          {p.name[0].toUpperCase()}
+                        <PlayerAvatar player={p} index={i} size="md" badge />
+                        <div>
+                          <span className="font-medium">{p.name}</span>
+                          <p className="text-[10px] text-gray-500">Player {i + 1}</p>
                         </div>
-                        <span className="font-medium">{p.name}</span>
                       </div>
                       <button
                         onClick={() => removePlayer(p.id)}
@@ -482,6 +495,7 @@ export default function ManageTournamentPage() {
                     standings={standings}
                     players={players}
                     numGroups={tournament.num_groups ?? 4}
+                    teamsAdvancing={tournament.teams_advancing ?? 2}
                   />
 
                   {/* Knockout bracket if we've advanced */}
@@ -502,6 +516,16 @@ export default function ManageTournamentPage() {
 
         </div>
       </main>
+
+      {/* ── Shareable Fixture Card Modal ── */}
+      {showFixtureCard && (
+        <ShareableFixtureCard
+          tournament={tournament}
+          fixtures={fixtures}
+          players={players}
+          onClose={() => setShowFixtureCard(false)}
+        />
+      )}
 
       {/* ── Score Modal ── */}
       {scoreModal && (

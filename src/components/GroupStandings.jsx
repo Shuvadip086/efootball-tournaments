@@ -1,6 +1,6 @@
 const GROUP_LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
 
-function GroupTable({ groupLetter, players, standings }) {
+function GroupTable({ groupLetter, players, standings, teamsAdvancing = 2 }) {
   const playerMap = Object.fromEntries(players.map(p => [p.id, p]))
 
   // sort by points → GD → GF
@@ -38,7 +38,7 @@ function GroupTable({ groupLetter, players, standings }) {
           <tbody className="divide-y divide-gray-800">
             {sorted.map((s, i) => {
               const player = playerMap[s.player_id]
-              const advancing = i < 2  // top 2 advance
+              const advancing = i < teamsAdvancing
               return (
                 <tr
                   key={s.id}
@@ -77,7 +77,7 @@ function GroupTable({ groupLetter, players, standings }) {
   )
 }
 
-export default function GroupStandings({ standings, players, numGroups }) {
+export default function GroupStandings({ standings, players, numGroups, teamsAdvancing = 2 }) {
   if (!standings?.length) {
     return <p className="text-gray-400 text-sm py-4 text-center">No standings yet.</p>
   }
@@ -89,22 +89,23 @@ export default function GroupStandings({ standings, players, numGroups }) {
       groupPlayers.some(p => p.id === s.player_id)
     )
     if (groupPlayers.length > 0) {
-      groups.push({ g, players: groupPlayers, standings: groupStandings })
+      groups.push({ g, players: groupPlayers, standings: groupStandings, teamsAdvancing })
     }
   }
 
   return (
     <div>
       <p className="text-xs text-indigo-400 bg-indigo-950/30 border border-indigo-800 rounded-lg px-3 py-2 mb-5">
-        🏆 Top 2 players from each group (highlighted in blue) advance to the knockout stage.
+        🏆 Top {teamsAdvancing} player{teamsAdvancing !== 1 ? 's' : ''} from each group (highlighted in blue) advance to the knockout stage.
       </p>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {groups.map(({ g, players: gPlayers, standings: gStandings }) => (
+        {groups.map(({ g, players: gPlayers, standings: gStandings, teamsAdvancing: ta }) => (
           <GroupTable
             key={g}
             groupLetter={GROUP_LETTERS[g - 1]}
             players={gPlayers}
             standings={gStandings}
+            teamsAdvancing={ta}
           />
         ))}
       </div>

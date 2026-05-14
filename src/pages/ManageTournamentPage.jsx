@@ -23,6 +23,7 @@ export default function ManageTournamentPage() {
   const [showFixtureCard, setShowFixtureCard] = useState(false)
   const [draggingId, setDraggingId]     = useState(null)
   const [dragOverGroup, setDragOverGroup] = useState(null)
+  const [manualMode, setManualMode]     = useState(false)
 
   // ── Derived fixture sets ──────────────────────────────────────
   const groupFixtures    = fixtures.filter(f => f.phase === 'group')
@@ -65,13 +66,18 @@ export default function ManageTournamentPage() {
 
   const assignPlayerGroup = async (playerId, groupNum) => {
     await supabase.from('players').update({ group_number: groupNum }).eq('id', playerId)
-    // Auto-regenerate group stage fixtures whenever a group is assigned
-    if (tournament?.format === 'group_knockout') {
-      await supabase.rpc('generate_group_stage_fixtures', {
-        p_tournament_id: id,
-        p_num_groups: tournament.num_groups ?? 4,
-      })
-    }
+    refetch()
+  }
+
+  const regenGroupFixtures = async () => {
+    setActionLoading(true)
+    setActionError('')
+    const { error: err } = await supabase.rpc('generate_group_stage_fixtures', {
+      p_tournament_id: id,
+      p_num_groups: tournament.num_groups ?? 4,
+    })
+    if (err) setActionError(err.message)
+    setActionLoading(false)
     refetch()
   }
 
@@ -333,104 +339,142 @@ export default function ManageTournamentPage() {
                 <p className="text-gray-400 text-sm text-center py-8">No players yet. Add some above!</p>
 
               ) : tournament?.format === 'group_knockout' ? (
-                /* ── Drag & Drop Group Assignment ── */
+                /* ── Group Assignment (Auto / Manual) ── */
                 <div>
-                  <div className="flex items-center justify-between mb-3">
-                    <p className="text-sm text-gray-400">
-                      Drag players into groups, or use the dropdown to assign them.
-                    </p>
-                    {players.some(p => p.group_number) && (
-                      <span className="text-xs text-emerald-400 font-medium">
-                        ✓ Manual groups saved
-                      </span>
-                    )}
+                  {/* Toolbar: toggle + regenerate button */}
+                  <div className="flex items-center justify-between mb-4">
+                    <label className="flex items-center gap-2.5 cursor-pointer select-none">
+                      {/* Toggle switch */}
+                      <div
+                        onClick={() => setManualMode(m => !m)}
+                        className={`relative w-10 h-5.5 rounded-full transition-colors duration-200 ${manualMode ? 'bg-indigo-600' : 'bg-gray-700'}`}
+                        style={{ width: '40px', height: '22px' }}
+                      >
+                        <span
+                          className={`absolute top-0.5 left-0.5 w-4.5 h-4.5 bg-white rounded-full shadow transition-transform duration-200 ${manualMode ? 'translate-x-[18px]' : 'translate-x-0'}`}
+                          style={{ width: '18px', height: '18px' }}
+                        />
+                      </div>
+                      <span className="text-sm text-gray-300 font-medium">Manual group assignment</span>
+                    </label>
+
+                    <button
+                      onClick={regenGroupFixtures}
+                      disabled={actionLoading}
+                      className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 bg-indigo-700 hover:bg-indigo-600 disabled:opacity-50 text-white rounded-lg transition-colors"
+                    >
+                      {actionLoading ? (
+                        <span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      ) : '🔄'}
+                      Regenerate Fixtures
+                    </button>
                   </div>
 
-                  {/* Unassigned players pool */}
-                  {players.some(p => !p.group_number) && (
-                    <div className="mb-4 p-3 bg-gray-900/60 border border-dashed border-gray-700 rounded-xl">
-                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
-                        Unassigned players — drag to a group below
+                  {!manualMode ? (
+                    /* ── Auto mode: flat list with group badges ── */
+                    <div>
+                      <p className="text-xs text-gray-500 mb-3">
+                        Groups will be auto-assigned randomly when you click Regenerate Fixtures.
+                        {players.some(p => p.group_number) && ' Current assignments shown below.'}
                       </p>
-                      <div className="flex flex-wrap gap-2">
-                        {players.filter(p => !p.group_number).map((p, i) => {
-                          const globalIdx = players.findIndex(x => x.id === p.id)
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {players.map((p, i) => (
+                          <div key={p.id} className="flex items-center justify-between bg-gray-900 border border-gray-800 rounded-xl px-4 py-3">
+                            <div className="flex items-center gap-3">
+                              <PlayerAvatar player={p} index={i} size="md" badge />
+                              <div>
+                                <span className="font-medium text-white">{p.name}</span>
+                                {p.group_number
+                                  ? <p className="text-[10px] text-indigo-400 font-semibold">Group {GROUP_LETTERS[p.group_number - 1]}</p>
+                                  : <p className="text-[10px] text-gray-500">Unassigned</p>
+                                }
+                              </div>
+                            </div>
+                            <button onClick={() => removePlayer(p.id)} className="text-gray-600 hover:text-red-400 transition-colors text-sm">Remove</button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                  ) : (
+                    /* ── Manual mode: drag & drop ── */
+                    <div>
+                      <p className="text-xs text-gray-500 mb-3">
+                        Drag players into groups, or use the <span className="text-gray-300">Move→</span> dropdown. Hit <span className="text-indigo-400 font-semibold">Regenerate Fixtures</span> when done.
+                      </p>
+
+                      {/* Unassigned pool */}
+                      {players.some(p => !p.group_number) && (
+                        <div className="mb-4 p-3 bg-gray-900/60 border border-dashed border-gray-700 rounded-xl">
+                          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                            Unassigned — drag to a group below
+                          </p>
+                          <div className="flex flex-wrap gap-2">
+                            {players.filter(p => !p.group_number).map(p => {
+                              const globalIdx = players.findIndex(x => x.id === p.id)
+                              return (
+                                <DraggablePlayer
+                                  key={p.id} player={p} index={globalIdx}
+                                  draggingId={draggingId}
+                                  onDragStart={handleDragStart}
+                                  onRemove={() => removePlayer(p.id)}
+                                  groups={Array.from({ length: tournament.num_groups ?? 4 }, (_, gi) => gi + 1)}
+                                  onAssign={assignPlayerGroup}
+                                />
+                              )
+                            })}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Group columns */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+                        {Array.from({ length: tournament.num_groups ?? 4 }, (_, i) => i + 1).map(g => {
+                          const gPlayers = players.filter(p => p.group_number === g)
+                          const isOver   = dragOverGroup === g
                           return (
-                            <DraggablePlayer
-                              key={p.id} player={p} index={globalIdx}
-                              draggingId={draggingId}
-                              onDragStart={handleDragStart}
-                              onRemove={() => removePlayer(p.id)}
-                              groups={Array.from({ length: tournament.num_groups ?? 4 }, (_, i) => i + 1)}
-                              onAssign={assignPlayerGroup}
-                            />
+                            <div key={g}
+                              onDragOver={e => { e.preventDefault(); setDragOverGroup(g) }}
+                              onDragLeave={() => setDragOverGroup(null)}
+                              onDrop={e => handleDrop(e, g)}
+                              className={`rounded-xl border-2 transition-all ${
+                                isOver ? 'border-indigo-400 bg-indigo-950/40 shadow-lg shadow-indigo-950/30' : 'border-gray-700 bg-gray-900/60'
+                              }`}
+                            >
+                              <div className="flex items-center gap-2 px-3 py-2.5 border-b border-gray-700/60">
+                                <div className="w-7 h-7 rounded-lg bg-indigo-600 flex items-center justify-center text-xs font-black text-white">
+                                  {GROUP_LETTERS[g - 1]}
+                                </div>
+                                <span className="text-sm font-bold text-gray-200">Group {GROUP_LETTERS[g - 1]}</span>
+                                <span className="ml-auto text-xs text-gray-600">{gPlayers.length}</span>
+                              </div>
+                              <div className="p-2 min-h-[80px]">
+                                {gPlayers.length === 0 ? (
+                                  <p className="text-xs text-gray-700 text-center py-4">Drop here</p>
+                                ) : (
+                                  <div className="space-y-1.5">
+                                    {gPlayers.map(p => {
+                                      const globalIdx = players.findIndex(x => x.id === p.id)
+                                      return (
+                                        <DraggablePlayer
+                                          key={p.id} player={p} index={globalIdx}
+                                          draggingId={draggingId}
+                                          onDragStart={handleDragStart}
+                                          onRemove={() => removePlayer(p.id)}
+                                          groups={Array.from({ length: tournament.num_groups ?? 4 }, (_, gi) => gi + 1).filter(x => x !== g)}
+                                          onAssign={assignPlayerGroup}
+                                          compact
+                                        />
+                                      )
+                                    })}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
                           )
                         })}
                       </div>
                     </div>
-                  )}
-
-                  {/* Group columns */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
-                    {Array.from({ length: tournament.num_groups ?? 4 }, (_, i) => i + 1).map(g => {
-                      const gPlayers = players.filter(p => p.group_number === g)
-                      const isOver   = dragOverGroup === g
-                      return (
-                        <div key={g}
-                          onDragOver={e => { e.preventDefault(); setDragOverGroup(g) }}
-                          onDragLeave={() => setDragOverGroup(null)}
-                          onDrop={e => handleDrop(e, g)}
-                          className={`rounded-xl border-2 transition-all ${
-                            isOver
-                              ? 'border-indigo-400 bg-indigo-950/40 shadow-lg shadow-indigo-950/30'
-                              : 'border-gray-700 bg-gray-900/60'
-                          }`}
-                        >
-                          {/* Group header */}
-                          <div className="flex items-center gap-2 px-3 py-2.5 border-b border-gray-700/60">
-                            <div className="w-7 h-7 rounded-lg bg-indigo-600 flex items-center justify-center text-xs font-black text-white">
-                              {GROUP_LETTERS[g - 1]}
-                            </div>
-                            <span className="text-sm font-bold text-gray-200">
-                              Group {GROUP_LETTERS[g - 1]}
-                            </span>
-                            <span className="ml-auto text-xs text-gray-600">{gPlayers.length}</span>
-                          </div>
-
-                          {/* Drop area */}
-                          <div className="p-2 min-h-[80px]">
-                            {gPlayers.length === 0 ? (
-                              <p className="text-xs text-gray-700 text-center py-4">
-                                Drop player here
-                              </p>
-                            ) : (
-                              <div className="space-y-1.5">
-                                {gPlayers.map(p => {
-                                  const globalIdx = players.findIndex(x => x.id === p.id)
-                                  return (
-                                    <DraggablePlayer
-                                      key={p.id} player={p} index={globalIdx}
-                                      draggingId={draggingId}
-                                      onDragStart={handleDragStart}
-                                      onRemove={() => removePlayer(p.id)}
-                                      groups={Array.from({ length: tournament.num_groups ?? 4 }, (_, i) => i + 1).filter(x => x !== g)}
-                                      onAssign={assignPlayerGroup}
-                                      compact
-                                    />
-                                  )
-                                })}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-
-                  {fixtures.length > 0 && (
-                    <p className="text-xs text-emerald-400 mt-3">
-                      ✓ Fixtures automatically update when you reassign players to groups.
-                    </p>
                   )}
                 </div>
 

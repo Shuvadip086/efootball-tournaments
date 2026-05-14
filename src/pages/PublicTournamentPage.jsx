@@ -210,26 +210,31 @@ function FixturesAtAGlance({ tournament, fixtures, groupFixtures, knockoutFixtur
     f.home_player_id === filterPlayer ||
     f.away_player_id === filterPlayer
 
-  const homeAway = tournament.home_away
+  // Only enable the paired (mini bracket) view when fixtures actually have pair_id set.
+  // If tournament has home_away=true but fixtures were generated before the migration,
+  // pair_id will be null → fall back to flat view so something always renders.
+  const homeAway = tournament.home_away && fixtures.some(f => f.pair_id)
 
   // Render a fixture list (single or paired)
   function renderFixtures(fxList) {
     const filtered = fxList.filter(matchesFilter)
     if (!filtered.length) return <p className="text-xs text-gray-600 py-3 text-center">No matches for this player.</p>
-    if (homeAway) {
+    if (homeAway && fxList.some(f => f.pair_id)) {
       // Pair up, then filter pairs that include the selected player
       const allPairs = pairByPairId(fxList)
       const filteredPairs = allPairs.filter(({ leg1, leg2 }) =>
         matchesFilter(leg1 ?? {}) || matchesFilter(leg2 ?? {})
       )
-      if (!filteredPairs.length) return <p className="text-xs text-gray-600 py-3 text-center">No matches for this player.</p>
-      return (
-        <div className="space-y-2">
-          {filteredPairs.map(({ leg1, leg2 }) => (
-            <PublicTwoLegRow key={leg1?.id ?? leg2?.id} leg1={leg1} leg2={leg2} players={players} playerMap={playerMap} />
-          ))}
-        </div>
-      )
+      if (filteredPairs.length) {
+        return (
+          <div className="space-y-2">
+            {filteredPairs.map(({ leg1, leg2 }) => (
+              <PublicTwoLegRow key={leg1?.id ?? leg2?.id} leg1={leg1} leg2={leg2} players={players} playerMap={playerMap} />
+            ))}
+          </div>
+        )
+      }
+      // fall through to flat view
     }
     return (
       <div className="space-y-1.5">
@@ -252,10 +257,7 @@ function FixturesAtAGlance({ tournament, fixtures, groupFixtures, knockoutFixtur
 
   if (tournament.format === 'league') {
     const allFixtures = fixtures
-    // group by leg1 round (for home_away) or all rounds
-    const rounds = homeAway
-      ? [...new Set(allFixtures.filter(f => f.leg === 1 || !f.pair_id).map(f => f.round))].sort((a, b) => a - b)
-      : [...new Set(allFixtures.map(f => f.round))].sort((a, b) => a - b)
+    const rounds = [...new Set(allFixtures.map(f => f.round))].sort((a, b) => a - b)
 
     return (
       <div>
@@ -285,6 +287,9 @@ function FixturesAtAGlance({ tournament, fixtures, groupFixtures, knockoutFixtur
                 </div>
               )
             })}
+            {allFixtures.filter(matchesFilter).length === 0 && filterPlayer !== 'all' && (
+              <p className="text-xs text-gray-600 py-6 text-center">No matches for this player.</p>
+            )}
           </div>
         )}
       </div>
@@ -308,8 +313,11 @@ function FixturesAtAGlance({ tournament, fixtures, groupFixtures, knockoutFixtur
                   const gFix = groupFixtures.filter(f => playerMap[f.home_player_id]?.group_number === g)
                   if (!gFix.length) return null
                   const gFiltered = gFix.filter(matchesFilter)
-                  const gPairs = homeAway ? pairByPairId(gFix).filter(({ leg1, leg2 }) => matchesFilter(leg1 ?? {}) || matchesFilter(leg2 ?? {})) : null
-                  if (filterPlayer !== 'all' && (homeAway ? !gPairs?.length : !gFiltered.length)) return null
+                  const useGroupPairs = homeAway && gFix.some(f => f.pair_id)
+                  const gPairs = useGroupPairs
+                    ? pairByPairId(gFix).filter(({ leg1, leg2 }) => matchesFilter(leg1 ?? {}) || matchesFilter(leg2 ?? {}))
+                    : null
+                  if (filterPlayer !== 'all' && (useGroupPairs ? !gPairs?.length : !gFiltered.length)) return null
                   return (
                     <div key={g} className="bg-gray-900/60 border border-gray-800 rounded-xl overflow-hidden">
                       <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-800 bg-gray-900">
@@ -318,7 +326,7 @@ function FixturesAtAGlance({ tournament, fixtures, groupFixtures, knockoutFixtur
                         <span className="ml-auto text-[10px] text-gray-600">{gFix.filter(f => f.status === 'completed').length}/{gFix.length} played</span>
                       </div>
                       <div className="divide-y divide-gray-800/60">
-                        {homeAway
+                        {useGroupPairs
                           ? gPairs.map(({ leg1, leg2 }) => (
                               <PublicTwoLegRow key={leg1?.id ?? leg2?.id} leg1={leg1} leg2={leg2} players={players} playerMap={playerMap} compact />
                             ))

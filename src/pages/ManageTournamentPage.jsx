@@ -577,7 +577,7 @@ export default function ManageTournamentPage() {
                               <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Group {GROUP_LETTERS[g - 1]}</h4>
                             </div>
                             <div className="space-y-2">
-                              {tournament?.home_away
+                              {tournament?.home_away && gFixtures.some(f => f.pair_id)
                                 ? pairByPairId(gFixtures).map(({ leg1, leg2 }) => (
                                     <TwoLegMatchCard
                                       key={leg1?.id ?? leg2?.id}
@@ -615,31 +615,45 @@ export default function ManageTournamentPage() {
 
               ) : (
                 /* League */
-                tournament?.home_away
+                tournament?.home_away && fixtures.some(f => f.pair_id)
                   ? /* Home & Away — pair each Leg 1 with its Leg 2 */
-                    <div className="space-y-3">
-                      {pairByPairId(fixtures).map(({ leg1, leg2 }) => (
-                        <TwoLegMatchCard
-                          key={leg1?.id ?? leg2?.id}
-                          leg1={leg1} leg2={leg2}
-                          playerMap={playerMap}
-                          onEnterScore={openScoreModal}
-                        />
-                      ))}
-                    </div>
-                  : /* Single-leg round-by-round */
-                    <div className="space-y-4">
-                      {[...new Set(fixtures.map(f => f.round))].sort((a, b) => a - b).map(round => (
-                        <div key={round}>
-                          <h3 className="text-xs font-semibold uppercase text-gray-500 mb-2">Round {round}</h3>
-                          <div className="space-y-2 mb-4">
-                            {fixtures.filter(f => f.round === round).map(f => (
-                              <MatchRow key={f.id} fixture={f} playerMap={playerMap} onEnterScore={openScoreModal} />
-                            ))}
+                    <>
+                      {!fixtures.some(f => f.pair_id) && (
+                        <p className="text-xs text-amber-400 bg-amber-950/30 border border-amber-800/50 rounded-lg px-3 py-2 mb-3">
+                          ⚠ Run the home/away SQL migration to enable mini bracket view.
+                        </p>
+                      )}
+                      <div className="space-y-3">
+                        {pairByPairId(fixtures).map(({ leg1, leg2 }) => (
+                          <TwoLegMatchCard
+                            key={leg1?.id ?? leg2?.id}
+                            leg1={leg1} leg2={leg2}
+                            playerMap={playerMap}
+                            onEnterScore={openScoreModal}
+                          />
+                        ))}
+                      </div>
+                    </>
+                  : /* Single-leg round-by-round (also fallback when pair_id missing) */
+                    <>
+                      {tournament?.home_away && !fixtures.some(f => f.pair_id) && (
+                        <p className="text-xs text-amber-400 bg-amber-950/30 border border-amber-800/50 rounded-lg px-3 py-2 mb-3">
+                          ⚠ Home &amp; Away is enabled but fixtures lack pair_id. Run <code className="bg-amber-900/60 px-1 rounded">supabase-migration-homeaway.sql</code> and the updated <code className="bg-amber-900/60 px-1 rounded">supabase-functions.sql</code>, then click <b>Regenerate Fixtures</b>.
+                        </p>
+                      )}
+                      <div className="space-y-4">
+                        {[...new Set(fixtures.map(f => f.round))].sort((a, b) => a - b).map(round => (
+                          <div key={round}>
+                            <h3 className="text-xs font-semibold uppercase text-gray-500 mb-2">Round {round}</h3>
+                            <div className="space-y-2 mb-4">
+                              {fixtures.filter(f => f.round === round).map(f => (
+                                <MatchRow key={f.id} fixture={f} playerMap={playerMap} onEnterScore={openScoreModal} />
+                              ))}
+                            </div>
                           </div>
-                        </div>
-                      ))}
-                    </div>
+                        ))}
+                      </div>
+                    </>
               )}
             </div>
           )}

@@ -186,10 +186,16 @@ BEGIN
     RAISE EXCEPTION 'Need at least % players for % groups (got %)', p_num_groups * 2, p_num_groups, v_n;
   END IF;
 
-  FOR v_i IN 1..v_n LOOP
-    UPDATE public.players SET group_number = ((v_i-1) % p_num_groups) + 1
-    WHERE id = v_players[v_i];
-  END LOOP;
+  -- Only auto-assign groups if players don't already have manual group assignments
+  IF NOT EXISTS (
+    SELECT 1 FROM public.players
+    WHERE tournament_id = p_tournament_id AND group_number IS NOT NULL
+  ) THEN
+    FOR v_i IN 1..v_n LOOP
+      UPDATE public.players SET group_number = ((v_i-1) % p_num_groups) + 1
+      WHERE id = v_players[v_i];
+    END LOOP;
+  END IF;
 
   FOR v_g IN 1..p_num_groups LOOP
     SELECT array_agg(id ORDER BY created_at) INTO v_group_players

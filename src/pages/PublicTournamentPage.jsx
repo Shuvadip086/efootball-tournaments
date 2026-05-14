@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useTournament } from '../hooks/useTournament'
 import { useRealtimeStandings } from '../hooks/useRealtimeStandings'
@@ -187,38 +188,105 @@ export default function PublicTournamentPage() {
   )
 }
 
+// ── Pair fixtures by pair_id (home & away) ───────────────────────
+function pairByPairId(fxList) {
+  const map = {}
+  fxList.forEach(f => {
+    if (f.pair_id) {
+      if (!map[f.pair_id]) map[f.pair_id] = { leg1: null, leg2: null }
+      if (f.leg === 1) map[f.pair_id].leg1 = f
+      else             map[f.pair_id].leg2 = f
+    }
+  })
+  return Object.values(map).sort((a, b) => (a.leg1?.round ?? 0) - (b.leg1?.round ?? 0))
+}
+
 // ── Fixtures at a glance ──────────────────────────────────────────
 function FixturesAtAGlance({ tournament, fixtures, groupFixtures, knockoutFixtures, regularFixtures, players, playerMap }) {
-  const allFixtures = tournament.format === 'group_knockout'
-    ? [...groupFixtures, ...knockoutFixtures]
-    : tournament.format === 'knockout'
-    ? regularFixtures.length ? regularFixtures : fixtures
-    : fixtures  // league: all fixtures
+  const [filterPlayer, setFilterPlayer] = useState('all')
+
+  const matchesFilter = (f) =>
+    filterPlayer === 'all' ||
+    f.home_player_id === filterPlayer ||
+    f.away_player_id === filterPlayer
+
+  const homeAway = tournament.home_away
+
+  // Render a fixture list (single or paired)
+  function renderFixtures(fxList) {
+    const filtered = fxList.filter(matchesFilter)
+    if (!filtered.length) return <p className="text-xs text-gray-600 py-3 text-center">No matches for this player.</p>
+    if (homeAway) {
+      // Pair up, then filter pairs that include the selected player
+      const allPairs = pairByPairId(fxList)
+      const filteredPairs = allPairs.filter(({ leg1, leg2 }) =>
+        matchesFilter(leg1 ?? {}) || matchesFilter(leg2 ?? {})
+      )
+      if (!filteredPairs.length) return <p className="text-xs text-gray-600 py-3 text-center">No matches for this player.</p>
+      return (
+        <div className="space-y-2">
+          {filteredPairs.map(({ leg1, leg2 }) => (
+            <PublicTwoLegRow key={leg1?.id ?? leg2?.id} leg1={leg1} leg2={leg2} players={players} playerMap={playerMap} />
+          ))}
+        </div>
+      )
+    }
+    return (
+      <div className="space-y-1.5">
+        {filtered.map(f => <PublicFixtureRow key={f.id} fixture={f} players={players} playerMap={playerMap} />)}
+      </div>
+    )
+  }
+
+  // Player filter dropdown
+  const Dropdown = (
+    <select
+      value={filterPlayer}
+      onChange={e => setFilterPlayer(e.target.value)}
+      className="text-sm bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-1.5 focus:outline-none focus:border-indigo-500 cursor-pointer"
+    >
+      <option value="all">👤 All Players</option>
+      {players.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+    </select>
+  )
 
   if (tournament.format === 'league') {
-    const rounds = [...new Set(allFixtures.map(f => f.round))].sort((a, b) => a - b)
+    const allFixtures = fixtures
+    // group by leg1 round (for home_away) or all rounds
+    const rounds = homeAway
+      ? [...new Set(allFixtures.filter(f => f.leg === 1 || !f.pair_id).map(f => f.round))].sort((a, b) => a - b)
+      : [...new Set(allFixtures.map(f => f.round))].sort((a, b) => a - b)
+
     return (
-      <div className="space-y-4">
-        {rounds.map(round => {
-          const rFixtures = allFixtures.filter(f => f.round === round)
-          const allDone = rFixtures.every(f => f.status === 'completed')
-          const anyDone = rFixtures.some(f => f.status === 'completed')
-          return (
-            <div key={round}>
-              <div className="flex items-center gap-2 mb-2">
-                <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Round {round}</span>
-                {allDone
-                  ? <span className="text-[10px] text-green-400 font-semibold">✓ Complete</span>
-                  : anyDone
-                  ? <span className="text-[10px] text-indigo-400 font-semibold">In progress</span>
-                  : null}
-              </div>
-              <div className="space-y-1.5">
-                {rFixtures.map(f => <PublicFixtureRow key={f.id} fixture={f} players={players} playerMap={playerMap} />)}
-              </div>
-            </div>
-          )
-        })}
+      <div>
+        <div className="flex items-center justify-between mb-4">
+          <span className="text-xs text-gray-500">{fixtures.length} total matches</span>
+          {Dropdown}
+        </div>
+        {homeAway ? (
+          renderFixtures(allFixtures)
+        ) : (
+          <div className="space-y-4">
+            {rounds.map(round => {
+              const rFix = allFixtures.filter(f => f.round === round).filter(matchesFilter)
+              if (!rFix.length) return null
+              const allDone = rFix.every(f => f.status === 'completed')
+              const anyDone = rFix.some(f => f.status === 'completed')
+              return (
+                <div key={round}>
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Round {round}</span>
+                    {allDone ? <span className="text-[10px] text-green-400 font-semibold">✓ Complete</span>
+                      : anyDone ? <span className="text-[10px] text-indigo-400 font-semibold">In progress</span> : null}
+                  </div>
+                  <div className="space-y-1.5">
+                    {rFix.map(f => <PublicFixtureRow key={f.id} fixture={f} players={players} playerMap={playerMap} />)}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
       </div>
     )
   }
@@ -226,88 +294,165 @@ function FixturesAtAGlance({ tournament, fixtures, groupFixtures, knockoutFixtur
   if (tournament.format === 'group_knockout') {
     const numGroups = tournament.num_groups ?? 4
     return (
-      <div className="space-y-6">
-        {/* Group stage fixtures */}
-        {groupFixtures.length > 0 && (
-          <div>
-            <p className="text-xs font-bold uppercase tracking-wider text-indigo-400 mb-3">Group Stage</p>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {Array.from({ length: numGroups }, (_, i) => i + 1).map(g => {
-                const gFix = groupFixtures.filter(f => {
-                  const hp = playerMap[f.home_player_id]
-                  return hp?.group_number === g
-                })
-                if (!gFix.length) return null
-                return (
-                  <div key={g} className="bg-gray-900/60 border border-gray-800 rounded-xl overflow-hidden">
-                    <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-800 bg-gray-900">
-                      <div className="w-5 h-5 rounded bg-indigo-700 flex items-center justify-center text-[10px] font-black text-white">
-                        {GROUP_LETTERS[g - 1]}
+      <div>
+        <div className="flex items-center justify-between mb-4">
+          <span className="text-xs text-gray-500">{fixtures.length} total matches</span>
+          {Dropdown}
+        </div>
+        <div className="space-y-6">
+          {groupFixtures.length > 0 && (
+            <div>
+              <p className="text-xs font-bold uppercase tracking-wider text-indigo-400 mb-3">Group Stage</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {Array.from({ length: numGroups }, (_, i) => i + 1).map(g => {
+                  const gFix = groupFixtures.filter(f => playerMap[f.home_player_id]?.group_number === g)
+                  if (!gFix.length) return null
+                  const gFiltered = gFix.filter(matchesFilter)
+                  const gPairs = homeAway ? pairByPairId(gFix).filter(({ leg1, leg2 }) => matchesFilter(leg1 ?? {}) || matchesFilter(leg2 ?? {})) : null
+                  if (filterPlayer !== 'all' && (homeAway ? !gPairs?.length : !gFiltered.length)) return null
+                  return (
+                    <div key={g} className="bg-gray-900/60 border border-gray-800 rounded-xl overflow-hidden">
+                      <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-800 bg-gray-900">
+                        <div className="w-5 h-5 rounded bg-indigo-700 flex items-center justify-center text-[10px] font-black text-white">{GROUP_LETTERS[g - 1]}</div>
+                        <span className="text-xs font-bold text-gray-300 uppercase tracking-wide">Group {GROUP_LETTERS[g - 1]}</span>
+                        <span className="ml-auto text-[10px] text-gray-600">{gFix.filter(f => f.status === 'completed').length}/{gFix.length} played</span>
                       </div>
-                      <span className="text-xs font-bold text-gray-300 uppercase tracking-wide">Group {GROUP_LETTERS[g - 1]}</span>
-                      <span className="ml-auto text-[10px] text-gray-600">
-                        {gFix.filter(f => f.status === 'completed').length}/{gFix.length} played
-                      </span>
+                      <div className="divide-y divide-gray-800/60">
+                        {homeAway
+                          ? gPairs.map(({ leg1, leg2 }) => (
+                              <PublicTwoLegRow key={leg1?.id ?? leg2?.id} leg1={leg1} leg2={leg2} players={players} playerMap={playerMap} compact />
+                            ))
+                          : gFiltered.map(f => <PublicFixtureRow key={f.id} fixture={f} players={players} playerMap={playerMap} compact />)
+                        }
+                      </div>
                     </div>
-                    <div className="divide-y divide-gray-800/60">
-                      {gFix.map(f => <PublicFixtureRow key={f.id} fixture={f} players={players} playerMap={playerMap} compact />)}
-                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+          {knockoutFixtures.length > 0 && (
+            <div>
+              <p className="text-xs font-bold uppercase tracking-wider text-amber-400 mb-3">Knockout Stage</p>
+              {(() => {
+                const rounds = [...new Set(knockoutFixtures.map(f => f.round))].sort((a, b) => a - b)
+                const totalRounds = rounds.length
+                const roundNames = ['Final', 'Semi-Final', 'Quarter-Final', 'Round of 16', 'Round of 32']
+                return (
+                  <div className="space-y-3">
+                    {rounds.map((round, idx) => {
+                      const rFix = knockoutFixtures.filter(f => f.round === round).filter(matchesFilter)
+                      if (!rFix.length && filterPlayer !== 'all') return null
+                      const name = roundNames[totalRounds - 1 - idx] ?? `Round ${round}`
+                      return (
+                        <div key={round}>
+                          <p className="text-xs text-gray-500 font-semibold mb-2">{name}</p>
+                          <div className="space-y-1.5">
+                            {(filterPlayer !== 'all' ? rFix : knockoutFixtures.filter(f => f.round === round))
+                              .map(f => <PublicFixtureRow key={f.id} fixture={f} players={players} playerMap={playerMap} />)}
+                          </div>
+                        </div>
+                      )
+                    })}
                   </div>
                 )
-              })}
+              })()}
             </div>
-          </div>
-        )}
-
-        {/* Knockout stage fixtures */}
-        {knockoutFixtures.length > 0 && (
-          <div>
-            <p className="text-xs font-bold uppercase tracking-wider text-amber-400 mb-3">Knockout Stage</p>
-            {(() => {
-              const rounds = [...new Set(knockoutFixtures.map(f => f.round))].sort((a, b) => a - b)
-              const totalRounds = rounds.length
-              const roundNames = ['Final', 'Semi-Final', 'Quarter-Final', 'Round of 16', 'Round of 32']
-              return (
-                <div className="space-y-3">
-                  {rounds.map((round, idx) => {
-                    const rFix = knockoutFixtures.filter(f => f.round === round)
-                    const name = roundNames[totalRounds - 1 - idx] ?? `Round ${round}`
-                    return (
-                      <div key={round}>
-                        <p className="text-xs text-gray-500 font-semibold mb-2">{name}</p>
-                        <div className="space-y-1.5">
-                          {rFix.map(f => <PublicFixtureRow key={f.id} fixture={f} players={players} playerMap={playerMap} />)}
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              )
-            })()}
-          </div>
-        )}
+          )}
+        </div>
       </div>
     )
   }
 
-  // Knockout: show by round
+  // Knockout format
+  const allFixtures = regularFixtures.length ? regularFixtures : fixtures
   const rounds = [...new Set(allFixtures.map(f => f.round))].sort((a, b) => a - b)
   const totalRounds = rounds.length
   const roundNames = ['Final', 'Semi-Final', 'Quarter-Final', 'Round of 16', 'Round of 32']
   return (
-    <div className="space-y-4">
-      {rounds.map((round, idx) => {
-        const rFix = allFixtures.filter(f => f.round === round)
-        const name = roundNames[totalRounds - 1 - idx] ?? `Round ${round}`
-        return (
-          <div key={round}>
-            <p className="text-xs text-gray-500 font-semibold uppercase tracking-wider mb-2">{name}</p>
-            <div className="space-y-1.5">
-              {rFix.map(f => <PublicFixtureRow key={f.id} fixture={f} players={players} playerMap={playerMap} />)}
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <span className="text-xs text-gray-500">{fixtures.length} total matches</span>
+        {Dropdown}
+      </div>
+      <div className="space-y-4">
+        {rounds.map((round, idx) => {
+          const rFix = allFixtures.filter(f => f.round === round).filter(matchesFilter)
+          if (!rFix.length && filterPlayer !== 'all') return null
+          const name = roundNames[totalRounds - 1 - idx] ?? `Round ${round}`
+          return (
+            <div key={round}>
+              <p className="text-xs text-gray-500 font-semibold uppercase tracking-wider mb-2">{name}</p>
+              <div className="space-y-1.5">
+                {(filterPlayer !== 'all' ? rFix : allFixtures.filter(f => f.round === round))
+                  .map(f => <PublicFixtureRow key={f.id} fixture={f} players={players} playerMap={playerMap} />)}
+              </div>
             </div>
-          </div>
-        )
-      })}
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+// ── Two-leg row (home & away) for public page ─────────────────────
+function PublicTwoLegRow({ leg1, leg2, players, playerMap, compact }) {
+  const ref = leg1 ?? leg2
+  if (!ref) return null
+  const homeP = playerMap[ref.home_player_id]
+  const awayP = playerMap[ref.away_player_id]
+  const hIdx  = players.findIndex(p => p.id === ref.home_player_id)
+  const aIdx  = players.findIndex(p => p.id === ref.away_player_id)
+  const l1Done = leg1?.status === 'completed'
+  const l2Done = leg2?.status === 'completed'
+  const bothDone = l1Done && l2Done
+  const aggHome = (l1Done ? leg1.home_score : 0) + (l2Done ? leg2.away_score : 0)
+  const aggAway = (l1Done ? leg1.away_score : 0) + (l2Done ? leg2.home_score : 0)
+
+  return (
+    <div className={`rounded-xl border border-gray-800 overflow-hidden ${compact ? '' : 'bg-gray-900/80'}`}>
+      {/* Players header */}
+      <div className="flex items-center gap-2 px-3 py-2 bg-gray-900 border-b border-gray-800">
+        <PlayerAvatar player={homeP} index={hIdx} size="xs" />
+        <span className="text-xs font-bold text-white truncate flex-1">{homeP?.name}</span>
+        <span className="text-[10px] text-gray-600 font-bold shrink-0">vs</span>
+        <span className="text-xs font-bold text-white truncate flex-1 text-right">{awayP?.name}</span>
+        <PlayerAvatar player={awayP} index={aIdx} size="xs" />
+      </div>
+      {/* Leg 1 */}
+      <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-800/50">
+        <span className="text-[10px] font-bold text-indigo-400 w-10 shrink-0">Leg 1</span>
+        <span className="text-[10px] text-gray-500 flex-1 truncate">🏠 {homeP?.name}</span>
+        {l1Done
+          ? <span className="text-sm font-black text-indigo-300 tabular-nums">{leg1.home_score} – {leg1.away_score}</span>
+          : <span className="text-[10px] text-gray-600 bg-gray-800 px-2 py-0.5 rounded-full">Pending</span>
+        }
+      </div>
+      {/* Leg 2 */}
+      <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-800/50">
+        <span className="text-[10px] font-bold text-amber-400 w-10 shrink-0">Leg 2</span>
+        <span className="text-[10px] text-gray-500 flex-1 truncate">🏠 {awayP?.name}</span>
+        {l2Done
+          ? <span className="text-sm font-black text-amber-300 tabular-nums">{leg2.home_score} – {leg2.away_score}</span>
+          : <span className="text-[10px] text-gray-600 bg-gray-800 px-2 py-0.5 rounded-full">Pending</span>
+        }
+      </div>
+      {/* Aggregate */}
+      <div className="flex items-center justify-center gap-2 px-3 py-1.5 bg-gray-800/30">
+        <span className="text-[10px] text-gray-600 uppercase tracking-wider">Agg</span>
+        <span className={`text-xs font-black tabular-nums ${bothDone && aggHome > aggAway ? 'text-white' : 'text-gray-500'}`}>
+          {l1Done ? leg1.home_score : '?'}{l2Done ? `+${leg2.away_score}` : '+?'}
+        </span>
+        <span className="text-gray-700 text-[10px]">–</span>
+        <span className={`text-xs font-black tabular-nums ${bothDone && aggAway > aggHome ? 'text-white' : 'text-gray-500'}`}>
+          {l1Done ? leg1.away_score : '?'}{l2Done ? `+${leg2.home_score}` : '+?'}
+        </span>
+        {bothDone && (
+          <span className="text-[10px] text-green-400 font-semibold ml-1">
+            → {aggHome > aggAway ? homeP?.name : aggAway > aggHome ? awayP?.name : 'Draw'}
+          </span>
+        )}
+      </div>
     </div>
   )
 }

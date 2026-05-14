@@ -577,7 +577,19 @@ export default function ManageTournamentPage() {
                               <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Group {GROUP_LETTERS[g - 1]}</h4>
                             </div>
                             <div className="space-y-2">
-                              {gFixtures.map(f => <MatchRow key={f.id} fixture={f} playerMap={playerMap} onEnterScore={openScoreModal} />)}
+                              {tournament?.home_away
+                                ? pairByPairId(gFixtures).map(({ leg1, leg2 }) => (
+                                    <TwoLegMatchCard
+                                      key={leg1?.id ?? leg2?.id}
+                                      leg1={leg1} leg2={leg2}
+                                      playerMap={playerMap}
+                                      onEnterScore={openScoreModal}
+                                    />
+                                  ))
+                                : gFixtures.map(f => (
+                                    <MatchRow key={f.id} fixture={f} playerMap={playerMap} onEnterScore={openScoreModal} />
+                                  ))
+                              }
                             </div>
                           </div>
                         )
@@ -602,19 +614,32 @@ export default function ManageTournamentPage() {
                 <KnockoutBracket fixtures={fixtures} players={players} onEnterScore={openScoreModal} />
 
               ) : (
-                /* League — round-by-round */
-                <div className="space-y-4">
-                  {[...new Set(fixtures.map(f => f.round))].sort((a, b) => a - b).map(round => (
-                    <div key={round}>
-                      <h3 className="text-xs font-semibold uppercase text-gray-500 mb-2">Round {round}</h3>
-                      <div className="space-y-2 mb-4">
-                        {fixtures.filter(f => f.round === round).map(f => (
-                          <MatchRow key={f.id} fixture={f} playerMap={playerMap} onEnterScore={openScoreModal} />
-                        ))}
-                      </div>
+                /* League */
+                tournament?.home_away
+                  ? /* Home & Away — pair each Leg 1 with its Leg 2 */
+                    <div className="space-y-3">
+                      {pairByPairId(fixtures).map(({ leg1, leg2 }) => (
+                        <TwoLegMatchCard
+                          key={leg1?.id ?? leg2?.id}
+                          leg1={leg1} leg2={leg2}
+                          playerMap={playerMap}
+                          onEnterScore={openScoreModal}
+                        />
+                      ))}
                     </div>
-                  ))}
-                </div>
+                  : /* Single-leg round-by-round */
+                    <div className="space-y-4">
+                      {[...new Set(fixtures.map(f => f.round))].sort((a, b) => a - b).map(round => (
+                        <div key={round}>
+                          <h3 className="text-xs font-semibold uppercase text-gray-500 mb-2">Round {round}</h3>
+                          <div className="space-y-2 mb-4">
+                            {fixtures.filter(f => f.round === round).map(f => (
+                              <MatchRow key={f.id} fixture={f} playerMap={playerMap} onEnterScore={openScoreModal} />
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
               )}
             </div>
           )}
@@ -755,6 +780,95 @@ export default function ManageTournamentPage() {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+// ── Group fixtures by pair_id (home & away) ──────────────────────
+function pairByPairId(fxList) {
+  const map = {}
+  fxList.forEach(f => {
+    if (f.pair_id) {
+      if (!map[f.pair_id]) map[f.pair_id] = { leg1: null, leg2: null }
+      if (f.leg === 1) map[f.pair_id].leg1 = f
+      else             map[f.pair_id].leg2 = f
+    }
+  })
+  return Object.values(map).sort((a, b) => (a.leg1?.round ?? 0) - (b.leg1?.round ?? 0))
+}
+
+// ── Two-leg mini bracket card ─────────────────────────────────────
+function TwoLegMatchCard({ leg1, leg2, playerMap, onEnterScore }) {
+  if (!leg1 && !leg2) return null
+  const ref = leg1 ?? leg2
+  const homeP = playerMap[ref.home_player_id]   // leg1 home
+  const awayP = playerMap[ref.away_player_id]   // leg1 away
+  const leg1Done = leg1?.status === 'completed'
+  const leg2Done = leg2?.status === 'completed'
+  const bothDone = leg1Done && leg2Done
+
+  // Aggregate: homeP total = leg1.home + leg2.away
+  const aggHome = (leg1Done ? (leg1.home_score ?? 0) : 0) + (leg2Done ? (leg2.away_score ?? 0) : 0)
+  const aggAway = (leg1Done ? (leg1.away_score ?? 0) : 0) + (leg2Done ? (leg2.home_score ?? 0) : 0)
+  const aggWinner = bothDone ? (aggHome > aggAway ? homeP?.name : aggAway > aggHome ? awayP?.name : 'Draw') : null
+
+  return (
+    <div className="rounded-xl border border-gray-700 overflow-hidden bg-gray-900">
+      {/* Header */}
+      <div className="flex items-center gap-3 px-4 py-2.5 bg-gray-800/70 border-b border-gray-700">
+        <span className="text-sm font-bold text-white truncate flex-1">{homeP?.name}</span>
+        <span className="text-[10px] text-gray-500 font-semibold shrink-0 tracking-widest">VS</span>
+        <span className="text-sm font-bold text-white truncate flex-1 text-right">{awayP?.name}</span>
+      </div>
+
+      {/* Leg 1 */}
+      <div className="flex items-center gap-3 px-4 py-2.5 border-b border-gray-800/60">
+        <span className="text-[10px] font-bold text-indigo-400 uppercase tracking-wider w-10 shrink-0">Leg 1</span>
+        <span className="text-xs text-gray-400 flex-1 truncate">🏠 {homeP?.name}</span>
+        {leg1Done ? (
+          <div className="flex items-center gap-2 shrink-0">
+            <span className="text-sm font-bold text-indigo-300 tabular-nums">{leg1.home_score} – {leg1.away_score}</span>
+            <button onClick={() => onEnterScore(leg1)} className="text-xs text-gray-600 hover:text-gray-300 underline">Edit</button>
+          </div>
+        ) : leg1 ? (
+          <button onClick={() => onEnterScore(leg1)} className="shrink-0 text-xs bg-indigo-600 hover:bg-indigo-500 text-white px-2.5 py-1 rounded-lg font-medium">
+            Score
+          </button>
+        ) : null}
+      </div>
+
+      {/* Leg 2 */}
+      <div className="flex items-center gap-3 px-4 py-2.5 border-b border-gray-800/60">
+        <span className="text-[10px] font-bold text-amber-400 uppercase tracking-wider w-10 shrink-0">Leg 2</span>
+        <span className="text-xs text-gray-400 flex-1 truncate">🏠 {awayP?.name}</span>
+        {leg2Done ? (
+          <div className="flex items-center gap-2 shrink-0">
+            <span className="text-sm font-bold text-amber-300 tabular-nums">{leg2.home_score} – {leg2.away_score}</span>
+            <button onClick={() => onEnterScore(leg2)} className="text-xs text-gray-600 hover:text-gray-300 underline">Edit</button>
+          </div>
+        ) : leg2 ? (
+          <button onClick={() => onEnterScore(leg2)} className="shrink-0 text-xs bg-amber-700 hover:bg-amber-600 text-white px-2.5 py-1 rounded-lg font-medium">
+            Score
+          </button>
+        ) : (
+          <span className="text-xs text-gray-700 italic">–</span>
+        )}
+      </div>
+
+      {/* Aggregate */}
+      <div className={`flex items-center justify-center gap-2 px-4 py-2 ${bothDone ? 'bg-gray-800/50' : 'bg-gray-900'}`}>
+        <span className="text-[10px] text-gray-500 uppercase tracking-wider">Agg</span>
+        <span className={`text-sm font-black tabular-nums ${bothDone && aggHome > aggAway ? 'text-white' : 'text-gray-500'}`}>
+          {leg1Done ? leg1.home_score : '?'}{leg2Done ? `+${leg2.away_score}` : '+?'}
+        </span>
+        <span className="text-gray-700 text-xs">–</span>
+        <span className={`text-sm font-black tabular-nums ${bothDone && aggAway > aggHome ? 'text-white' : 'text-gray-500'}`}>
+          {leg1Done ? leg1.away_score : '?'}{leg2Done ? `+${leg2.home_score}` : '+?'}
+        </span>
+        {bothDone && aggWinner && (
+          <span className="text-[10px] text-green-400 font-semibold ml-1">→ {aggWinner}</span>
+        )}
+      </div>
     </div>
   )
 }

@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
 import { useTournament } from '../hooks/useTournament'
 import LeagueTable from '../components/LeagueTable'
@@ -11,7 +11,7 @@ import { computeStandings } from '../utils/computeStandings'
 import { exportTournamentToExcel } from '../utils/exportTournament'
 
 const GROUP_LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
-const TABS = ['Players', 'Fixtures', 'Results', 'Stats']
+const TABS = ['Players', 'Fixtures', 'Results', 'Stats', 'Settings']
 
 export default function ManageTournamentPage() {
   const { id } = useParams()
@@ -71,6 +71,14 @@ export default function ManageTournamentPage() {
   const removePlayer = async (playerId) => {
     if (!confirm('Remove this player?')) return
     await supabase.from('players').delete().eq('id', playerId)
+    refetch()
+  }
+
+  const renamePlayer = async (player) => {
+    const next = window.prompt(`Rename player "${player.name}":`, player.name)?.trim()
+    if (!next || next === player.name) return
+    const { error } = await supabase.from('players').update({ name: next }).eq('id', player.id)
+    if (error) return setActionError(error.message)
     refetch()
   }
 
@@ -430,8 +438,14 @@ export default function ManageTournamentPage() {
                                         <PlayerAvatar player={p} index={globalIdx} size="sm" />
                                         <span className="text-sm text-white font-medium flex-1 truncate">{p.name}</span>
                                         <button
+                                          onClick={() => renamePlayer(p)}
+                                          className="text-gray-700 hover:text-indigo-400 transition-colors text-xs shrink-0"
+                                          title="Rename"
+                                        >✏️</button>
+                                        <button
                                           onClick={() => removePlayer(p.id)}
                                           className="text-gray-700 hover:text-red-400 transition-colors text-xs shrink-0"
+                                          title="Remove"
                                         >✕</button>
                                       </div>
                                     )
@@ -450,7 +464,10 @@ export default function ManageTournamentPage() {
                                 <PlayerAvatar player={p} index={i} size="md" badge />
                                 <span className="font-medium text-white">{p.name}</span>
                               </div>
-                              <button onClick={() => removePlayer(p.id)} className="text-gray-600 hover:text-red-400 transition-colors text-sm">Remove</button>
+                              <div className="flex items-center gap-2">
+                                <button onClick={() => renamePlayer(p)} className="text-gray-500 hover:text-indigo-400 transition-colors text-sm" title="Rename">✏️</button>
+                                <button onClick={() => removePlayer(p.id)} className="text-gray-600 hover:text-red-400 transition-colors text-sm">Remove</button>
+                              </div>
                             </div>
                           ))}
                         </div>
@@ -479,6 +496,7 @@ export default function ManageTournamentPage() {
                                   draggingId={draggingId}
                                   onDragStart={handleDragStart}
                                   onRemove={() => removePlayer(p.id)}
+                                  onRename={() => renamePlayer(p)}
                                   groups={Array.from({ length: tournament.num_groups ?? 4 }, (_, gi) => gi + 1)}
                                   onAssign={assignPlayerGroup}
                                 />
@@ -522,6 +540,7 @@ export default function ManageTournamentPage() {
                                           draggingId={draggingId}
                                           onDragStart={handleDragStart}
                                           onRemove={() => removePlayer(p.id)}
+                                  onRename={() => renamePlayer(p)}
                                           groups={Array.from({ length: tournament.num_groups ?? 4 }, (_, gi) => gi + 1).filter(x => x !== g)}
                                           onAssign={assignPlayerGroup}
                                           compact
@@ -551,10 +570,13 @@ export default function ManageTournamentPage() {
                           <p className="text-[10px] text-gray-500">Player {i + 1}</p>
                         </div>
                       </div>
-                      <button onClick={() => removePlayer(p.id)}
-                        className="text-gray-600 hover:text-red-400 transition-colors text-sm">
-                        Remove
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button onClick={() => renamePlayer(p)} className="text-gray-500 hover:text-indigo-400 transition-colors text-sm" title="Rename">✏️</button>
+                        <button onClick={() => removePlayer(p.id)}
+                          className="text-gray-600 hover:text-red-400 transition-colors text-sm">
+                          Remove
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -752,6 +774,15 @@ export default function ManageTournamentPage() {
             </div>
           )}
 
+          {/* ══ SETTINGS TAB ══ */}
+          {tab === 'Settings' && tournament && (
+            <SettingsPanel
+              tournament={tournament}
+              fixtures={fixtures}
+              onSaved={refetch}
+            />
+          )}
+
         </div>
       </main>
 
@@ -909,7 +940,7 @@ function TwoLegMatchCard({ leg1, leg2, playerMap, onEnterScore }) {
 }
 
 // ── Draggable player chip ─────────────────────────────────────────
-function DraggablePlayer({ player, index, draggingId, onDragStart, onRemove, groups, onAssign, compact }) {
+function DraggablePlayer({ player, index, draggingId, onDragStart, onRemove, onRename, groups, onAssign, compact }) {
   const isDragging = draggingId === player.id
   return (
     <div
@@ -942,6 +973,15 @@ function DraggablePlayer({ player, index, draggingId, onDragStart, onRemove, gro
         </select>
       )}
 
+      {onRename && (
+        <button
+          onClick={e => { e.stopPropagation(); onRename() }}
+          className="text-gray-600 hover:text-indigo-400 transition-colors text-xs shrink-0"
+          title="Rename player"
+        >
+          ✏️
+        </button>
+      )}
       <button
         onClick={e => { e.stopPropagation(); onRemove() }}
         className="text-gray-600 hover:text-red-400 transition-colors text-xs shrink-0 ml-0.5"
@@ -978,6 +1018,197 @@ function MatchRow({ fixture: f, playerMap, onEnterScore }) {
           Enter Score
         </button>
       )}
+    </div>
+  )
+}
+
+// ── Settings panel ────────────────────────────────────────────────
+function SettingsPanel({ tournament, fixtures, onSaved }) {
+  const navigate = useNavigate()
+  const [name,        setName]        = useState(tournament.name        ?? '')
+  const [description, setDescription] = useState(tournament.description ?? '')
+  const [maxPlayers,  setMaxPlayers]  = useState(tournament.max_players ?? 8)
+  const [homeAway,    setHomeAway]    = useState(!!tournament.home_away)
+  const [numGroups,   setNumGroups]   = useState(tournament.num_groups ?? 4)
+  const [teamsAdv,    setTeamsAdv]    = useState(tournament.teams_advancing ?? 2)
+  const [saving,      setSaving]      = useState(false)
+  const [savedAt,     setSavedAt]     = useState(null)
+  const [err,         setErr]         = useState('')
+
+  const hasFixtures = fixtures.length > 0
+  const isGroupKO   = tournament.format === 'group_knockout'
+
+  const save = async () => {
+    setErr('')
+    setSaving(true)
+    const patch = {
+      name: name.trim(),
+      description: description.trim() || null,
+      max_players: Number(maxPlayers) || 8,
+      home_away: homeAway,
+    }
+    if (isGroupKO) {
+      patch.num_groups = Number(numGroups) || 4
+      patch.teams_advancing = Number(teamsAdv) || 2
+    }
+    const { error } = await supabase
+      .from('tournaments')
+      .update(patch)
+      .eq('id', tournament.id)
+    setSaving(false)
+    if (error) return setErr(error.message)
+    setSavedAt(new Date())
+    onSaved?.()
+  }
+
+  const deleteTournament = async () => {
+    const confirmText = window.prompt(
+      `⚠️ DELETE "${tournament.name}"?\n\nThis permanently removes all players, fixtures, standings, and results.\n\nType the tournament name to confirm:`
+    )
+    if (confirmText !== tournament.name) {
+      if (confirmText !== null) alert('Name did not match — nothing was deleted.')
+      return
+    }
+    const { error } = await supabase.from('tournaments').delete().eq('id', tournament.id)
+    if (error) return setErr(error.message)
+    navigate('/dashboard')
+  }
+
+  return (
+    <div className="max-w-2xl space-y-6">
+      <div>
+        <h2 className="text-lg font-bold text-white mb-1">Tournament Settings</h2>
+        <p className="text-xs text-gray-500">Edit details, configuration, and danger-zone actions.</p>
+      </div>
+
+      {err && (
+        <div className="bg-red-900/40 border border-red-700 text-red-300 text-sm rounded-lg px-4 py-2">
+          {err}
+        </div>
+      )}
+
+      {/* General */}
+      <section className="bg-gray-900/60 border border-gray-800 rounded-2xl p-5 space-y-4">
+        <h3 className="text-sm font-bold text-indigo-300 uppercase tracking-wider">General</h3>
+
+        <div>
+          <label className="block text-xs text-gray-400 mb-1.5">Tournament name</label>
+          <input
+            value={name}
+            onChange={e => setName(e.target.value)}
+            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
+          />
+        </div>
+
+        <div>
+          <label className="block text-xs text-gray-400 mb-1.5">Description</label>
+          <textarea
+            rows={3}
+            value={description}
+            onChange={e => setDescription(e.target.value)}
+            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white resize-none focus:outline-none focus:border-indigo-500"
+            placeholder="Optional…"
+          />
+        </div>
+
+        <div>
+          <label className="block text-xs text-gray-400 mb-1.5">Max players (cap)</label>
+          <input
+            type="number"
+            min={2}
+            max={64}
+            value={maxPlayers}
+            onChange={e => setMaxPlayers(e.target.value)}
+            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
+          />
+          <p className="text-[10px] text-gray-500 mt-1">Just a soft cap shown in cards — doesn't change existing fixtures.</p>
+        </div>
+      </section>
+
+      {/* Format options */}
+      <section className="bg-gray-900/60 border border-gray-800 rounded-2xl p-5 space-y-4">
+        <h3 className="text-sm font-bold text-indigo-300 uppercase tracking-wider">Format</h3>
+
+        <div className="flex items-start gap-3 bg-gray-800/40 border border-gray-700 rounded-lg p-3">
+          <input
+            id="setting-homeaway"
+            type="checkbox"
+            checked={homeAway}
+            onChange={e => setHomeAway(e.target.checked)}
+            disabled={hasFixtures}
+            className="mt-0.5 w-4 h-4 accent-indigo-500 cursor-pointer disabled:cursor-not-allowed"
+          />
+          <label htmlFor="setting-homeaway" className={`text-sm ${hasFixtures ? 'text-gray-500' : 'text-white cursor-pointer'}`}>
+            <span className="font-semibold">🔄 Home &amp; Away</span>
+            <span className="block text-[11px] text-gray-500 mt-0.5">
+              Each matchup plays two legs. {hasFixtures && '(locked — regenerate fixtures to change)'}
+            </span>
+          </label>
+        </div>
+
+        {isGroupKO && (
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs text-gray-400 mb-1.5">Number of groups</label>
+              <input
+                type="number"
+                min={2}
+                max={16}
+                value={numGroups}
+                disabled={hasFixtures}
+                onChange={e => setNumGroups(e.target.value)}
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 disabled:opacity-50"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-400 mb-1.5">Teams advancing / group</label>
+              <input
+                type="number"
+                min={1}
+                max={8}
+                value={teamsAdv}
+                onChange={e => setTeamsAdv(e.target.value)}
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
+              />
+            </div>
+            {hasFixtures && (
+              <p className="text-[10px] text-amber-400/80 col-span-2">
+                ⚠️ Some format changes are locked because fixtures already exist. Regenerate fixtures from the Players tab to apply them.
+              </p>
+            )}
+          </div>
+        )}
+      </section>
+
+      {/* Save bar */}
+      <div className="flex items-center gap-3">
+        <button
+          onClick={save}
+          disabled={saving || !name.trim()}
+          className="bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 disabled:opacity-50 text-white font-bold px-5 py-2.5 rounded-xl text-sm transition-all shadow-lg shadow-indigo-900/40"
+        >
+          {saving ? 'Saving…' : '💾 Save changes'}
+        </button>
+        {savedAt && (
+          <span className="text-xs text-emerald-400">
+            ✓ Saved at {savedAt.toLocaleTimeString()}
+          </span>
+        )}
+      </div>
+
+      {/* Danger zone */}
+      <section className="border-2 border-red-900/60 bg-red-950/20 rounded-2xl p-5 mt-8">
+        <h3 className="text-sm font-bold text-red-400 uppercase tracking-wider mb-2">⚠️ Danger Zone</h3>
+        <p className="text-xs text-gray-400 mb-4">
+          Permanently delete this tournament and everything in it (players, fixtures, results, standings). This cannot be undone.
+        </p>
+        <button
+          onClick={deleteTournament}
+          className="bg-red-700 hover:bg-red-600 text-white font-bold px-5 py-2.5 rounded-xl text-sm transition-colors shadow-lg shadow-red-950/50"
+        >
+          🗑 Delete tournament
+        </button>
+      </section>
     </div>
   )
 }

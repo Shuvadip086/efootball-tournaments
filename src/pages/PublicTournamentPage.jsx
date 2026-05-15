@@ -1,12 +1,13 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useTournament } from '../hooks/useTournament'
-import { useRealtimeStandings } from '../hooks/useRealtimeStandings'
 import LeagueTable from '../components/LeagueTable'
 import KnockoutBracket from '../components/KnockoutBracket'
 import GroupStandings from '../components/GroupStandings'
 import PlayerAvatar from '../components/PlayerAvatar'
 import TopScorers from '../components/TopScorers'
+import { computeStandings } from '../utils/computeStandings'
+import { exportTournamentToExcel } from '../utils/exportTournament'
 
 const FORMAT_ICON  = { league: '📊', knockout: '🥊', group_knockout: '🏆' }
 const FORMAT_LABEL = { league: 'Round Robin', knockout: 'Single Elimination', group_knockout: 'Group + Knockout' }
@@ -15,8 +16,14 @@ const GROUP_LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
 export default function PublicTournamentPage() {
   const { slug } = useParams()
   const { tournament, players, fixtures, loading, error } = useTournament(slug, { bySlug: true })
-  const realtimeStandings = useRealtimeStandings(tournament?.id)
-  const standings = realtimeStandings.length ? realtimeStandings : []
+
+  // Always derive standings from fixtures (single source of truth).
+  // Avoids drift caused by the DB trigger incrementing on every score save.
+  const standings = useMemo(() => {
+    if (!tournament) return []
+    const phase = tournament.format === 'group_knockout' ? 'group' : undefined
+    return computeStandings(fixtures, players, { phase })
+  }, [tournament, fixtures, players])
 
   const groupFixtures      = fixtures.filter(f => f.phase === 'group')
   const knockoutFixtures   = fixtures.filter(f => f.phase === 'knockout')
@@ -108,6 +115,19 @@ export default function PublicTournamentPage() {
                 <p className="scoreboard-digit text-3xl text-white">{fixtures.length}</p>
                 <p className="text-[10px] text-gray-400 uppercase tracking-widest mt-1">Total</p>
               </div>
+            </div>
+          )}
+
+          {/* Export button */}
+          {fixtures.length > 0 && (
+            <div className="mt-5">
+              <button
+                onClick={() => exportTournamentToExcel(tournament, players, fixtures)}
+                className="inline-flex items-center gap-2 bg-emerald-600/90 hover:bg-emerald-500 text-white font-semibold px-5 py-2.5 rounded-xl text-sm transition-all shadow-lg shadow-emerald-900/40 hover:shadow-emerald-700/60 hover:-translate-y-0.5 border border-emerald-400/30"
+                title="Download tournament data as an Excel file"
+              >
+                <span className="text-base">📊</span> Download as Excel
+              </button>
             </div>
           )}
         </div>

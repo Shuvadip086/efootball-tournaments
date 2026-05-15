@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
 import { useTournament } from '../hooks/useTournament'
@@ -7,13 +7,23 @@ import KnockoutBracket from '../components/KnockoutBracket'
 import GroupStandings from '../components/GroupStandings'
 import PlayerAvatar from '../components/PlayerAvatar'
 import ShareableFixtureCard from '../components/ShareableFixtureCard'
+import { computeStandings } from '../utils/computeStandings'
+import { exportTournamentToExcel } from '../utils/exportTournament'
 
 const GROUP_LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
 const TABS = ['Players', 'Fixtures', 'Results', 'Stats']
 
 export default function ManageTournamentPage() {
   const { id } = useParams()
-  const { tournament, players, fixtures, standings, loading, error, refetch } = useTournament(id)
+  const { tournament, players, fixtures, standings: _dbStandings, loading, error, refetch } = useTournament(id)
+
+  // Always derive standings from fixtures (correct source of truth).
+  // The DB-trigger-based standings can over-count if a score was edited.
+  const standings = useMemo(() => {
+    if (!tournament) return []
+    const phase = tournament.format === 'group_knockout' ? 'group' : undefined
+    return computeStandings(fixtures, players, { phase })
+  }, [tournament, fixtures, players])
   const [tab, setTab] = useState('Players')
   const [newPlayer, setNewPlayer] = useState('')
   const [actionLoading, setActionLoading] = useState(false)
@@ -201,6 +211,15 @@ export default function ManageTournamentPage() {
                 className="text-xs text-gray-400 hover:text-white bg-gray-800 hover:bg-gray-700 border border-gray-700 px-2.5 py-1.5 rounded-lg transition-colors font-medium flex items-center gap-1"
               >
                 📋 <span className="hidden sm:inline">Fixture Card</span>
+              </button>
+            )}
+            {fixtures.length > 0 && (
+              <button
+                onClick={() => exportTournamentToExcel(tournament, players, fixtures)}
+                className="text-xs text-emerald-200 hover:text-white bg-emerald-700/70 hover:bg-emerald-600 border border-emerald-500/40 px-2.5 py-1.5 rounded-lg transition-colors font-medium flex items-center gap-1"
+                title="Download as Excel"
+              >
+                📊 <span className="hidden sm:inline">Excel</span>
               </button>
             )}
             <span className={`text-xs font-semibold px-2 py-1 rounded-full ${

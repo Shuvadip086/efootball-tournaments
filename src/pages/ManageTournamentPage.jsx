@@ -9,6 +9,7 @@ import PlayerAvatar from '../components/PlayerAvatar'
 import ShareableFixtureCard from '../components/ShareableFixtureCard'
 import { computeStandings } from '../utils/computeStandings'
 import { exportTournamentToExcel } from '../utils/exportTournament'
+import { addMissingFixtures } from '../utils/addMissingFixtures'
 
 const GROUP_LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
 const TABS = ['Players', 'Fixtures', 'Results', 'Stats', 'Settings']
@@ -84,6 +85,28 @@ export default function ManageTournamentPage() {
 
   const assignPlayerGroup = async (playerId, groupNum) => {
     await supabase.from('players').update({ group_number: groupNum }).eq('id', playerId)
+    refetch()
+  }
+
+  // Safe alternative to regenerate — only inserts the missing matchups
+  // for newly-added players. Existing fixtures and their scores are never
+  // touched. Standings recompute automatically from completed fixtures.
+  const addMissing = async () => {
+    setActionError('')
+    setActionLoading(true)
+    try {
+      const { added, skipped: _skipped } = await addMissingFixtures({
+        tournament, players, fixtures,
+      })
+      if (added === 0) {
+        alert('No missing fixtures found — every pairing already exists.')
+      } else {
+        alert(`✓ Added ${added} new fixture${added === 1 ? '' : 's'}. Existing matches and scores were not changed.`)
+      }
+    } catch (e) {
+      setActionError(e.message)
+    }
+    setActionLoading(false)
     refetch()
   }
 
@@ -290,6 +313,30 @@ export default function ManageTournamentPage() {
           </div>
         )}
 
+        {/* Add missing fixtures (live tournament with new players) */}
+        {tournament?.status === 'active' &&
+         (tournament.format === 'league' || tournament.format === 'group_knockout') &&
+         players.length >= 2 && fixtures.length > 0 && (
+          <div className="mt-4 p-4 bg-emerald-950/30 border border-emerald-800/60 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-medium text-emerald-200">➕ Added new players?</p>
+              <p className="text-xs text-emerald-400/80">
+                Safely add fixtures for any missing matchups — existing matches and scores stay untouched.
+              </p>
+            </div>
+            <button
+              onClick={addMissing}
+              disabled={actionLoading}
+              className="shrink-0 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-semibold px-5 py-2 rounded-lg text-sm transition-colors flex items-center gap-1.5"
+            >
+              {actionLoading ? (
+                <span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              ) : '➕'}
+              {actionLoading ? 'Adding…' : 'Add Missing Fixtures'}
+            </button>
+          </div>
+        )}
+
         {/* Advance group → knockout */}
         {tournament?.format === 'group_knockout' && inGroupPhase && groupPhaseComplete && (
           <div className="mt-4 p-4 bg-green-950/40 border border-green-800 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
@@ -391,16 +438,30 @@ export default function ManageTournamentPage() {
                       <span className="text-sm text-gray-300 font-medium">Manual group assignment</span>
                     </label>
 
-                    <button
-                      onClick={regenGroupFixtures}
-                      disabled={actionLoading}
-                      className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 bg-indigo-700 hover:bg-indigo-600 disabled:opacity-50 text-white rounded-lg transition-colors"
-                    >
-                      {actionLoading ? (
-                        <span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                      ) : '🔄'}
-                      Regenerate Fixtures
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={addMissing}
+                        disabled={actionLoading}
+                        className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 text-white rounded-lg transition-colors"
+                        title="Safely add fixtures for new players without touching existing matches or scores"
+                      >
+                        {actionLoading ? (
+                          <span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        ) : '➕'}
+                        Add Missing Fixtures
+                      </button>
+                      <button
+                        onClick={regenGroupFixtures}
+                        disabled={actionLoading}
+                        className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 bg-indigo-700 hover:bg-indigo-600 disabled:opacity-50 text-white rounded-lg transition-colors"
+                        title="⚠️ Wipes ALL existing fixtures and scores, then rebuilds from scratch"
+                      >
+                        {actionLoading ? (
+                          <span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        ) : '🔄'}
+                        Regenerate (Wipe All)
+                      </button>
+                    </div>
                   </div>
 
                   {!manualMode ? (

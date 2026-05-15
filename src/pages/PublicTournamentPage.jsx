@@ -53,22 +53,21 @@ export default function PublicTournamentPage() {
       {/* Top glow accent */}
       <div className="field-accent-top" />
 
-      {/* ── Hero header ── */}
-      <div className="relative overflow-hidden border-b border-indigo-900/30">
-        {/* Pitch background layers */}
-        <div className="absolute inset-0 bg-gradient-to-br from-indigo-950 via-gray-950 to-emerald-950" />
-        <div className="absolute inset-0 pitch-lines opacity-70" />
-        <div className="absolute inset-0 football-dots opacity-60" />
+      {/* ── Hero header — superstars background ── */}
+      <div className="relative overflow-hidden border-b border-indigo-900/30 min-h-[420px] sm:min-h-[460px]">
+        {/* Players collage background image */}
+        <div
+          className="absolute inset-0 bg-cover bg-center bg-no-repeat"
+          style={{ backgroundImage: 'url(/bg-players.png)' }}
+        />
+        {/* Dark overlay for readability */}
+        <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-black/40 to-gray-950/95" />
+        <div className="absolute inset-0 bg-gradient-to-r from-gray-950/70 via-transparent to-gray-950/70" />
 
-        {/* Centre circle */}
-        <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-72 h-72 rounded-full border-2 border-white/10 pointer-events-none" />
-        <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-white/40 pointer-events-none shadow-[0_0_12px_rgba(255,255,255,0.6)]" />
+        {/* Subtle dot texture on top */}
+        <div className="absolute inset-0 football-dots opacity-30" />
 
-        {/* Penalty arcs (decorative) */}
-        <div className="absolute -left-32 top-1/2 -translate-y-1/2 w-64 h-64 rounded-full border-2 border-white/8 pointer-events-none" />
-        <div className="absolute -right-32 top-1/2 -translate-y-1/2 w-64 h-64 rounded-full border-2 border-white/8 pointer-events-none" />
-
-        {/* Bottom fade */}
+        {/* Bottom fade into page */}
         <div className="absolute inset-x-0 bottom-0 h-32 bg-gradient-to-b from-transparent to-gray-950" />
 
         <div className="relative max-w-3xl mx-auto px-4 py-14 text-center">

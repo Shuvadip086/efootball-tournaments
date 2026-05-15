@@ -64,23 +64,26 @@ export default function DashboardPage() {
         </div>
       </nav>
 
-      <main className="max-w-5xl mx-auto px-4 py-8">
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
+      {/* Trophy hero strip */}
+      <div className="relative overflow-hidden trophy-photo-bg border-b border-indigo-900/40">
+        <div className="relative max-w-5xl mx-auto px-4 py-10 sm:py-14 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-black match-day-text">My Tournaments</h1>
-            <p className="text-gray-400 text-sm mt-1 flex items-center gap-2">
+            <h1 className="text-3xl sm:text-4xl font-black match-day-text drop-shadow-lg">My Tournaments</h1>
+            <p className="text-gray-300 text-sm mt-2 flex items-center gap-2 drop-shadow">
               <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
               {tournaments.length} tournament{tournaments.length !== 1 ? 's' : ''} on the books
             </p>
           </div>
           <Link
             to="/tournament/create"
-            className="inline-flex items-center gap-2 bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 text-white font-bold px-6 py-3 rounded-xl transition-all text-sm shadow-lg shadow-indigo-900/40 hover:shadow-indigo-700/60 hover:-translate-y-0.5"
+            className="inline-flex items-center gap-2 bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 text-white font-bold px-6 py-3 rounded-xl transition-all text-sm shadow-lg shadow-indigo-900/40 hover:shadow-indigo-700/60 hover:-translate-y-0.5 ring-1 ring-indigo-400/30"
           >
             <span className="text-base">⚽</span> Kick Off New Tournament
           </Link>
         </div>
+      </div>
+
+      <main className="max-w-5xl mx-auto px-4 py-8">
 
         {/* Content */}
         {loading ? (

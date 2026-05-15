@@ -31,6 +31,39 @@
   background-attachment: fixed;
 }
 
+/* Real-photo stadium background — used on pages that want the
+   actual aerial stadium image instead of the gradient. */
+.stadium-photo-bg {
+  background-color: #030712;
+  background-image:
+    linear-gradient(180deg, rgba(5,8,22,0.86) 0%, rgba(2,4,16,0.94) 100%),
+    url('/bg-stadium.png');
+  background-size: cover;
+  background-position: center;
+  background-attachment: fixed;
+}
+
+/* Neon-ball backdrop for the login screen */
+.neon-photo-bg {
+  background-color: #030712;
+  background-image:
+    linear-gradient(180deg, rgba(5,8,22,0.80) 0%, rgba(2,4,16,0.92) 100%),
+    url('/bg-neon.png');
+  background-size: cover;
+  background-position: center;
+  background-attachment: fixed;
+}
+
+/* Trophy backdrop — used on dashboard hero strip */
+.trophy-photo-bg {
+  background-color: #030712;
+  background-image:
+    linear-gradient(180deg, rgba(5,8,22,0.55) 0%, rgba(2,4,16,0.95) 100%),
+    url('/bg-trophy.png');
+  background-size: cover;
+  background-position: center;
+}
+
 /* Alternative subtler stadium for inner sections */
 .pitch-bg {
   background-color: #030712;

@@ -396,6 +396,111 @@ export default function ManageTournamentPage() {
     refetch()
   }
 
+  // ── Manual re-seed bracket from current results ──────────────
+  // Walks every knockout round, recomputes who SHOULD be in each next
+  // round based on actual results, and patches mismatched player IDs.
+  // Always reliable — bypasses the auto-propagation prompt.
+  const reseedBracket = async () => {
+    const knockoutFx = fixtures.filter(isKnockoutFixture)
+    if (knockoutFx.length === 0) {
+      alert('No knockout fixtures to re-seed.')
+      return
+    }
+
+    // Group fixtures into matchups (single or two-leg) and sort by round + creation
+    const byPair = {}
+    const noPair = []
+    knockoutFx.forEach(f => {
+      if (f.pair_id) (byPair[f.pair_id] ??= []).push(f)
+      else noPair.push(f)
+    })
+    const matchupsList = []
+    noPair.forEach(f => matchupsList.push({ type: 'single', f, round: f.round, createdAt: f.created_at }))
+    Object.values(byPair).forEach(legs => {
+      const leg1 = legs.find(l => l.leg === 1) ?? legs[0]
+      const leg2 = legs.find(l => l.leg === 2)
+      matchupsList.push({ type: 'two-leg', leg1, leg2, round: leg1.round, createdAt: leg1.created_at })
+    })
+    matchupsList.sort((a, b) => a.round - b.round || new Date(a.createdAt) - new Date(b.createdAt))
+
+    const rounds = [...new Set(matchupsList.map(m => m.round))].sort((a, b) => a - b)
+    if (rounds.length < 2) {
+      alert('Only one knockout round exists — nothing to re-seed.')
+      return
+    }
+
+    // Winner of a matchup (aggregate-aware for two-leg ties)
+    const winnerOf = (m) => {
+      if (m.type === 'single') {
+        const f = m.f
+        if (f.status !== 'completed') return null
+        if (f.home_score > f.away_score) return f.home_player_id
+        if (f.away_score > f.home_score) return f.away_player_id
+        return null
+      }
+      const { leg1, leg2 } = m
+      if (!leg2 || leg1.status !== 'completed' || leg2.status !== 'completed') return null
+      const aGoals = (leg1.home_score ?? 0) + (leg2.away_score ?? 0)
+      const bGoals = (leg1.away_score ?? 0) + (leg2.home_score ?? 0)
+      if (aGoals > bGoals) return leg1.home_player_id
+      if (bGoals > aGoals) return leg1.away_player_id
+      return null
+    }
+
+    if (!confirm(
+      '🔄 Re-seed the knockout bracket?\n\n' +
+      'This walks every round and updates the players in the NEXT round based on who actually won each match. ' +
+      'Existing scores are kept — only player names get corrected.\n\n' +
+      'Use this after editing earlier-round scores so the bracket reflects reality.'
+    )) return
+
+    setActionLoading(true)
+    setActionError('')
+    let updates = 0
+    try {
+      for (let rIdx = 0; rIdx < rounds.length - 1; rIdx++) {
+        const cur  = matchupsList.filter(m => m.round === rounds[rIdx])
+        const nxt  = matchupsList.filter(m => m.round === rounds[rIdx + 1])
+        const winners = cur.map(winnerOf)
+
+        for (let i = 0; i < nxt.length; i++) {
+          const expHome = winners[i * 2]      // winner of match 2i → home slot of next match i
+          const expAway = winners[i * 2 + 1]  // winner of match 2i+1 → away slot
+          if (!expHome && !expAway) continue
+
+          const m = nxt[i]
+          const legs2patch = m.type === 'two-leg' ? [m.leg1, m.leg2].filter(Boolean) : [m.f]
+
+          for (const f of legs2patch) {
+            const patch = {}
+            if (m.type === 'two-leg' && f.id === m.leg2?.id) {
+              // Leg 2: players are swapped from leg 1
+              if (expAway && f.home_player_id !== expAway) patch.home_player_id = expAway
+              if (expHome && f.away_player_id !== expHome) patch.away_player_id = expHome
+            } else {
+              if (expHome && f.home_player_id !== expHome) patch.home_player_id = expHome
+              if (expAway && f.away_player_id !== expAway) patch.away_player_id = expAway
+            }
+            if (Object.keys(patch).length > 0) {
+              const { error } = await supabase.from('fixtures').update(patch).eq('id', f.id)
+              if (error) throw error
+              updates += 1
+            }
+          }
+        }
+      }
+      alert(updates === 0
+        ? '✓ Bracket already up-to-date — no changes needed.'
+        : `✓ Re-seeded the bracket — updated ${updates} fixture${updates === 1 ? '' : 's'}.`
+      )
+    } catch (e) {
+      setActionError(e.message)
+    } finally {
+      setActionLoading(false)
+      refetch()
+    }
+  }
+
   // ── Loading / Error ────────────────────────────────────────────
   if (loading) return (
     <div className="min-h-screen bg-gray-950 flex items-center justify-center">
@@ -543,11 +648,22 @@ export default function ManageTournamentPage() {
           </div>
         )}
 
-        {/* Knockout phase banner */}
-        {tournament?.format === 'group_knockout' && inKnockoutPhase && (
-          <div className="mt-4 px-4 py-2.5 bg-indigo-950/30 border border-indigo-800/50 rounded-xl flex items-center gap-2">
-            <span className="text-indigo-400 text-sm">⚡</span>
-            <span className="text-indigo-300 text-sm font-medium">Knockout stage in progress</span>
+        {/* Knockout phase banner + re-seed bracket button */}
+        {(tournament?.format === 'knockout' || (tournament?.format === 'group_knockout' && inKnockoutPhase)) &&
+          tournament?.status === 'active' && (
+          <div className="mt-4 px-4 py-2.5 bg-indigo-950/30 border border-indigo-800/50 rounded-xl flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <span className="text-indigo-400 text-sm">⚡</span>
+              <span className="text-indigo-300 text-sm font-medium">Knockout stage in progress</span>
+            </div>
+            <button
+              onClick={reseedBracket}
+              disabled={actionLoading}
+              className="shrink-0 bg-amber-700 hover:bg-amber-600 disabled:opacity-50 text-white font-semibold px-4 py-1.5 rounded-lg text-xs transition-colors flex items-center gap-1.5"
+              title="Walk every round and update next-round player names based on the actual winners"
+            >
+              🔄 {actionLoading ? 'Re-seeding…' : 'Re-seed Bracket from Results'}
+            </button>
           </div>
         )}
 

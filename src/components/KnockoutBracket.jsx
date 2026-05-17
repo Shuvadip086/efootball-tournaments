@@ -1,21 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { getPlayerTheme } from '../utils/playerIcons'
 
-const LINE_COLOR = '#6366f1'
-const CARD_W = 176   // px
-const CARD_H = 86    // single-leg card height
-const CARD_H_2L = 118 // two-leg card height
-const GAP = 16
-const COL_GAP = 52   // connector column width
-
-function slotH(rIdx, twoLeg) {
-  const ch = twoLeg ? CARD_H_2L : CARD_H
-  return (ch + GAP) * Math.pow(2, rIdx)
-}
-
-// Label by how many matches are in that round — more reliable than
-// counting back from the last round (which is wrong when the Final
-// hasn't been generated yet, e.g. mid-tournament you see QF + SF only).
+// ── Round label decided by match count (not position-from-end) ─────
 function roundLabel(matchCount) {
   if (matchCount === 1)  return 'Final'
   if (matchCount === 2)  return 'Semi-Finals'
@@ -56,7 +42,6 @@ function getAggregate(leg1, leg2) {
   return { aGoals, bGoals, aId: leg1.home_player_id, bId: leg1.away_player_id }
 }
 
-// ── Winner extraction helpers ──────────────────────────────────────
 function matchupWinnerId(m) {
   if (m.type === 'single') {
     const f = m.f
@@ -81,17 +66,66 @@ function matchupLoserId(m) {
   return m.leg1.home_player_id === winner ? m.leg1.away_player_id : m.leg1.home_player_id
 }
 
-// ── Single-leg match card ──────────────────────────────────────────
-function SingleCard({ fixture: f, playerMap, playerIndex, onEnterScore, onSubmitScore, big }) {
+// ═══════════════════════════════════════════════════════════════════
+//   PlayoffCard — the new vertical-layout match card.
+//
+//   ┌──────────────────────────────────────────────┐
+//   │ ⭕ Shuvadip                    [3]  L1  [2] │
+//   │ ⭕ Sanjoy                      [1]  L2  [0] │
+//   ├──────────────────────────────────────────────┤
+//   │             5 ─ AGG ─ 1                      │
+//   └──────────────────────────────────────────────┘
+// ═══════════════════════════════════════════════════════════════════
+function PlayoffCard({ matchup: m, playerMap, playerIndex, onSubmitScore, onEnterScore, accent = 'indigo' }) {
+  if (!m) return null
+
+  const isFinal = accent === 'final'
+  const accentBorder = isFinal
+    ? 'border-amber-500/60 shadow-amber-900/40'
+    : 'border-indigo-700/50 shadow-indigo-950/40'
+  const accentBg = isFinal
+    ? 'bg-gradient-to-br from-amber-950/30 via-gray-900/95 to-gray-900'
+    : 'bg-gradient-to-br from-gray-900/95 via-gray-900 to-indigo-950/30'
+
+  if (m.type === 'single') {
+    return (
+      <PlayoffSingleCard
+        fixture={m.f}
+        playerMap={playerMap}
+        playerIndex={playerIndex}
+        onSubmitScore={onSubmitScore}
+        onEnterScore={onEnterScore}
+        isFinal={isFinal}
+        accentBorder={accentBorder}
+        accentBg={accentBg}
+      />
+    )
+  }
+  return (
+    <PlayoffTwoLegCard
+      leg1={m.leg1}
+      leg2={m.leg2}
+      playerMap={playerMap}
+      playerIndex={playerIndex}
+      onSubmitScore={onSubmitScore}
+      onEnterScore={onEnterScore}
+      isFinal={isFinal}
+      accentBorder={accentBorder}
+      accentBg={accentBg}
+    />
+  )
+}
+
+// ── Single-leg playoff card ────────────────────────────────────────
+function PlayoffSingleCard({ fixture: f, playerMap, playerIndex, onSubmitScore, onEnterScore, isFinal, accentBorder, accentBg }) {
   const home = playerMap[f.home_player_id]
   const away = playerMap[f.away_player_id]
   const done = f.status === 'completed'
   const homeWon = done && f.home_score > f.away_score
   const awayWon = done && f.away_score > f.home_score
-  const hiHome = getPlayerTheme(playerIndex[f.home_player_id] ?? 0)
-  const hiAway = getPlayerTheme(playerIndex[f.away_player_id] ?? 1)
+  const themeH  = getPlayerTheme(playerIndex[f.home_player_id] ?? 0)
+  const themeA  = getPlayerTheme(playerIndex[f.away_player_id] ?? 1)
 
-  // Inline editing state — only used if onSubmitScore is provided
   const [hi, setHi] = useState(f.home_score ?? '')
   const [ai, setAi] = useState(f.away_score ?? '')
   const [saving, setSaving] = useState(false)
@@ -100,11 +134,11 @@ function SingleCard({ fixture: f, playerMap, playerIndex, onEnterScore, onSubmit
     setAi(f.away_score ?? '')
   }, [f.id, f.home_score, f.away_score])
 
-  const inline = !!onSubmitScore
-  const bothFilled = hi !== '' && ai !== '' && !isNaN(parseInt(hi)) && !isNaN(parseInt(ai))
-  const changed = bothFilled && (parseInt(hi) !== f.home_score || parseInt(ai) !== f.away_score)
+  const inline   = !!onSubmitScore
+  const filled   = hi !== '' && ai !== '' && !isNaN(parseInt(hi)) && !isNaN(parseInt(ai))
+  const changed  = filled && (parseInt(hi) !== f.home_score || parseInt(ai) !== f.away_score)
 
-  const handleSave = async () => {
+  const save = async () => {
     if (!changed) return
     setSaving(true)
     try { await onSubmitScore(f, parseInt(hi), parseInt(ai)) }
@@ -112,64 +146,76 @@ function SingleCard({ fixture: f, playerMap, playerIndex, onEnterScore, onSubmit
   }
 
   return (
-    <div className={`rounded-xl border ${big ? 'border-amber-500/60 bg-gradient-to-br from-gray-900 via-amber-950/30 to-gray-900 shadow-2xl shadow-amber-900/30' : 'border-gray-700/80 bg-gray-900/90 shadow-lg'} overflow-hidden relative`}
-         style={{ width: big ? CARD_W * 1.5 : CARD_W }}>
-      {[
-        { player: home, score: f.home_score, won: homeWon, theme: hiHome, isHome: true },
-        { player: away, score: f.away_score, won: awayWon, theme: hiAway, isHome: false },
-      ].map(({ player, score, won, theme, isHome }, i) => (
-        <div key={i}
-          className={`flex items-center justify-between px-2.5 ${big ? 'py-3' : 'py-2'} ${i === 0 ? 'border-b border-gray-700/60' : ''} ${won ? (big ? 'bg-amber-900/30' : 'bg-indigo-950/50') : ''}`}>
-          <div className="flex items-center gap-1.5 min-w-0">
-            <div className={`${big ? 'w-7 h-7 text-xs' : 'w-5 h-5 text-[9px]'} rounded-full ${theme.bg} flex items-center justify-center font-bold text-white shrink-0`}>
+    <div className={`relative rounded-2xl border-2 ${accentBorder} ${accentBg} shadow-xl overflow-hidden`}>
+      {isFinal && (
+        <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-transparent via-amber-400 to-transparent" />
+      )}
+      <div className="p-3 space-y-2">
+        {[
+          { player: home, theme: themeH, won: homeWon, val: hi, setVal: setHi, isHome: true },
+          { player: away, theme: themeA, won: awayWon, val: ai, setVal: setAi, isHome: false },
+        ].map(({ player, theme, won, val, setVal, isHome }, i) => (
+          <div key={i}
+            className={`flex items-center gap-2.5 rounded-xl px-2.5 py-2 transition-colors ${
+              won
+                ? (isFinal ? 'bg-amber-900/30 ring-1 ring-amber-500/40' : 'bg-indigo-900/30 ring-1 ring-indigo-500/40')
+                : 'bg-gray-800/60'
+            }`}>
+            <div className={`w-9 h-9 rounded-full ${theme.bg} flex items-center justify-center font-black text-white shrink-0 shadow-inner text-sm`}>
               {(player?.name ?? '?')[0].toUpperCase()}
             </div>
-            <span className={`${big ? 'text-base' : 'text-xs'} truncate ${won ? 'font-bold text-white' : 'text-gray-300'}`}>
-              {player?.name ?? 'TBD'}
-            </span>
-            {big && won && <span className="text-amber-400 text-base ml-1">👑</span>}
+            <div className="flex-1 min-w-0">
+              <p className={`text-sm leading-tight truncate ${won ? 'font-bold text-white' : 'text-gray-300'}`}>
+                {player?.name ?? 'TBD'}
+              </p>
+              {won && (
+                <p className={`text-[10px] uppercase tracking-wider font-bold ${isFinal ? 'text-amber-400' : 'text-indigo-400'}`}>
+                  {isFinal ? '👑 Champion' : 'advances'}
+                </p>
+              )}
+            </div>
+            {inline ? (
+              <input
+                type="number"
+                inputMode="numeric"
+                min={0}
+                value={val}
+                onChange={e => setVal(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && changed) save() }}
+                onClick={e => e.stopPropagation()}
+                disabled={saving}
+                placeholder="—"
+                className={`w-12 h-10 text-lg font-black tabular-nums text-center bg-gray-900/80 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-indigo-400 focus:bg-gray-900 placeholder:text-gray-600 shrink-0 disabled:opacity-50`}
+              />
+            ) : (
+              <span className={`text-xl font-black tabular-nums shrink-0 w-10 text-center ${won ? (isFinal ? 'text-amber-300' : 'text-indigo-300') : 'text-gray-500'}`}>
+                {val === '' ? '—' : val}
+              </span>
+            )}
           </div>
-          {inline ? (
-            <input
-              type="number"
-              inputMode="numeric"
-              min={0}
-              value={isHome ? hi : ai}
-              onChange={e => isHome ? setHi(e.target.value) : setAi(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter' && changed) handleSave() }}
-              onClick={e => e.stopPropagation()}
-              disabled={saving}
-              placeholder="—"
-              className={`${big ? 'w-14 h-9 text-xl' : 'w-9 h-7 text-sm'} font-bold tabular-nums text-center bg-gray-800/80 border border-gray-700 rounded-md text-white focus:outline-none focus:border-indigo-400 focus:bg-gray-800 placeholder:text-gray-600 ml-1 shrink-0 disabled:opacity-50`}
-            />
-          ) : (
-            <span className={`${big ? 'text-2xl' : 'text-sm'} font-bold ml-1 tabular-nums shrink-0 ${won ? (big ? 'text-amber-300' : 'text-indigo-400') : 'text-gray-600'}`}>
-              {score ?? '—'}
-            </span>
-          )}
-        </div>
-      ))}
-      {/* Inline save button — only when there's an unsaved change */}
+        ))}
+      </div>
       {inline && changed && (
         <button
-          onClick={handleSave}
+          onClick={save}
           disabled={saving}
-          className="w-full text-[11px] font-bold py-1.5 border-t border-gray-700/60 bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 text-white transition-all disabled:opacity-60"
-        >
+          className={`w-full py-2.5 text-xs font-bold uppercase tracking-wider transition-all disabled:opacity-60 ${
+            isFinal
+              ? 'bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-400 hover:to-amber-300 text-gray-900'
+              : 'bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 text-white'
+          }`}>
           {saving ? 'Saving…' : (done ? '✓ Update Score' : '✓ Save Score')}
         </button>
       )}
-      {/* Legacy modal trigger when inline is off */}
       {!inline && !done && onEnterScore && (
         <button onClick={() => onEnterScore(f)}
-          className="w-full text-[10px] font-semibold text-indigo-400 hover:text-white hover:bg-indigo-600/80 py-1.5 border-t border-gray-700/60 transition-colors">
+          className="w-full py-2 text-xs font-semibold text-indigo-400 hover:bg-indigo-600/50 hover:text-white transition-colors border-t border-gray-700/60">
           + Enter Score
         </button>
       )}
       {!inline && done && onEnterScore && (
         <button onClick={() => onEnterScore(f)}
-          className="absolute top-1.5 right-1.5 text-[10px] text-gray-500 hover:text-white hover:bg-indigo-600/80 rounded px-1.5 py-0.5 transition-colors"
-          title="Edit score">
+          className="absolute top-2 right-2 text-xs text-gray-500 hover:text-white hover:bg-indigo-600/80 rounded px-1.5 py-0.5 transition-colors">
           ✏️
         </button>
       )}
@@ -177,34 +223,31 @@ function SingleCard({ fixture: f, playerMap, playerIndex, onEnterScore, onSubmit
   )
 }
 
-// ── Two-leg match card ─────────────────────────────────────────────
-function TwoLegCard({ leg1, leg2, playerMap, playerIndex, onEnterScore, onSubmitScore, big }) {
+// ── Two-leg playoff card ───────────────────────────────────────────
+function PlayoffTwoLegCard({ leg1, leg2, playerMap, playerIndex, onSubmitScore, onEnterScore, isFinal, accentBorder, accentBg }) {
   const agg = getAggregate(leg1, leg2)
   const aId = leg1.home_player_id
   const bId = leg1.away_player_id
   const playerA = playerMap[aId]
   const playerB = playerMap[bId]
-  const themeA = getPlayerTheme(playerIndex[aId] ?? 0)
-  const themeB = getPlayerTheme(playerIndex[bId] ?? 1)
+  const themeA  = getPlayerTheme(playerIndex[aId] ?? 0)
+  const themeB  = getPlayerTheme(playerIndex[bId] ?? 1)
   const aWon = agg && agg.aGoals > agg.bGoals
   const bWon = agg && agg.bGoals > agg.aGoals
   const inline = !!onSubmitScore
 
-  // Inline leg state — A's L1 score = leg1.home_score, B's L1 = leg1.away_score, etc.
   const [aL1, setAL1] = useState(leg1.home_score ?? '')
   const [bL1, setBL1] = useState(leg1.away_score ?? '')
   const [aL2, setAL2] = useState(leg2?.away_score ?? '')
   const [bL2, setBL2] = useState(leg2?.home_score ?? '')
-  const [savingLeg, setSavingLeg] = useState(null) // 1 | 2 | null
+  const [savingLeg, setSavingLeg] = useState(null)
   useEffect(() => {
     setAL1(leg1.home_score ?? ''); setBL1(leg1.away_score ?? '')
     setAL2(leg2?.away_score ?? ''); setBL2(leg2?.home_score ?? '')
   }, [leg1.id, leg1.home_score, leg1.away_score, leg2?.id, leg2?.home_score, leg2?.away_score])
 
-  const l1Both = aL1 !== '' && bL1 !== ''
-  const l2Both = aL2 !== '' && bL2 !== ''
-  const l1Changed = l1Both && (parseInt(aL1) !== leg1.home_score || parseInt(bL1) !== leg1.away_score)
-  const l2Changed = leg2 && l2Both && (parseInt(bL2) !== leg2.home_score || parseInt(aL2) !== leg2.away_score)
+  const l1Changed = aL1 !== '' && bL1 !== '' && (parseInt(aL1) !== leg1.home_score || parseInt(bL1) !== leg1.away_score)
+  const l2Changed = leg2 && aL2 !== '' && bL2 !== '' && (parseInt(bL2) !== leg2.home_score || parseInt(aL2) !== leg2.away_score)
 
   const saveLeg = async (legNum) => {
     setSavingLeg(legNum)
@@ -214,77 +257,84 @@ function TwoLegCard({ leg1, leg2, playerMap, playerIndex, onEnterScore, onSubmit
     } finally { setSavingLeg(null) }
   }
 
-  const ScoreCell = ({ val, setVal, leg, theirsWinning }) => {
-    if (inline) {
-      return (
-        <input
-          type="number"
-          inputMode="numeric"
-          min={0}
-          value={val}
-          onChange={e => setVal(e.target.value)}
-          onKeyDown={e => { if (e.key === 'Enter') saveLeg(leg) }}
-          onClick={e => e.stopPropagation()}
-          disabled={savingLeg !== null}
-          placeholder="—"
-          className={`${big ? 'w-9 h-7 text-sm' : 'w-7 h-5 text-xs'} font-bold tabular-nums text-center bg-gray-800/80 border border-gray-700 rounded text-white focus:outline-none focus:border-indigo-400 placeholder:text-gray-600 disabled:opacity-50`}
-        />
-      )
-    }
-    return (
-      <span className={`text-xs font-bold tabular-nums w-4 text-center ${theirsWinning ? 'text-white' : 'text-gray-500'}`}>
-        {val === '' ? '—' : val}
-      </span>
-    )
-  }
+  const ScoreInput = ({ val, setVal, leg }) => inline ? (
+    <input
+      type="number"
+      inputMode="numeric"
+      min={0}
+      value={val}
+      onChange={e => setVal(e.target.value)}
+      onKeyDown={e => { if (e.key === 'Enter') saveLeg(leg) }}
+      onClick={e => e.stopPropagation()}
+      disabled={savingLeg !== null}
+      placeholder="—"
+      className="w-10 h-8 text-sm font-bold tabular-nums text-center bg-gray-900/80 border border-gray-700 rounded-md text-white focus:outline-none focus:border-indigo-400 placeholder:text-gray-600 disabled:opacity-50"
+    />
+  ) : (
+    <span className="w-7 inline-block text-center text-sm font-bold tabular-nums text-gray-300">
+      {val === '' ? '—' : val}
+    </span>
+  )
 
   return (
-    <div className={`rounded-xl border ${big ? 'border-amber-500/60 bg-gradient-to-br from-gray-900 via-amber-950/30 to-gray-900 shadow-2xl shadow-amber-900/30' : 'border-gray-700/80 bg-gray-900/90 shadow-lg'} overflow-hidden relative`}
-         style={{ width: big ? CARD_W * 1.7 : CARD_W }}>
-      {/* Player rows with inline leg scores */}
-      {[
-        { player: playerA, theme: themeA, won: aWon, l1Val: aL1, setL1: setAL1, l2Val: aL2, setL2: setAL2, l1Win: leg1.home_score>leg1.away_score, l2Win: leg2 && leg2.away_score>leg2.home_score },
-        { player: playerB, theme: themeB, won: bWon, l1Val: bL1, setL1: setBL1, l2Val: bL2, setL2: setBL2, l1Win: leg1.away_score>leg1.home_score, l2Win: leg2 && leg2.home_score>leg2.away_score },
-      ].map(({ player, theme, won, l1Val, setL1, l2Val, setL2, l1Win, l2Win }, i) => (
-        <div key={i}
-          className={`flex items-center justify-between px-2.5 ${big ? 'py-2' : 'py-1.5'} ${i === 0 ? 'border-b border-gray-700/40' : ''} ${won ? (big ? 'bg-amber-900/30' : 'bg-indigo-950/50') : ''}`}>
-          <div className="flex items-center gap-1.5 min-w-0">
-            <div className={`${big ? 'w-6 h-6 text-[10px]' : 'w-4 h-4 text-[8px]'} rounded-full ${theme.bg} flex items-center justify-center font-bold text-white shrink-0`}>
+    <div className={`relative rounded-2xl border-2 ${accentBorder} ${accentBg} shadow-xl overflow-hidden`}>
+      {isFinal && (
+        <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-transparent via-amber-400 to-transparent" />
+      )}
+      <div className="p-3 space-y-2">
+        {[
+          { player: playerA, theme: themeA, won: aWon, l1V: aL1, l1Set: setAL1, l2V: aL2, l2Set: setAL2 },
+          { player: playerB, theme: themeB, won: bWon, l1V: bL1, l1Set: setBL1, l2V: bL2, l2Set: setBL2 },
+        ].map(({ player, theme, won, l1V, l1Set, l2V, l2Set }, i) => (
+          <div key={i}
+            className={`flex items-center gap-2 rounded-xl px-2.5 py-2 ${
+              won
+                ? (isFinal ? 'bg-amber-900/30 ring-1 ring-amber-500/40' : 'bg-indigo-900/30 ring-1 ring-indigo-500/40')
+                : 'bg-gray-800/60'
+            }`}>
+            <div className={`w-9 h-9 rounded-full ${theme.bg} flex items-center justify-center font-black text-white shrink-0 shadow-inner text-sm`}>
               {(player?.name ?? '?')[0].toUpperCase()}
             </div>
-            <span className={`${big ? 'text-sm' : 'text-[11px]'} truncate ${won ? 'font-bold text-white' : 'text-gray-300'}`}>
-              {player?.name ?? 'TBD'}
-            </span>
-            {big && won && <span className="text-amber-400 ml-0.5">👑</span>}
+            <div className="flex-1 min-w-0">
+              <p className={`text-sm leading-tight truncate ${won ? 'font-bold text-white' : 'text-gray-300'}`}>
+                {player?.name ?? 'TBD'}
+              </p>
+              {won && (
+                <p className={`text-[10px] uppercase tracking-wider font-bold ${isFinal ? 'text-amber-400' : 'text-indigo-400'}`}>
+                  {isFinal ? '👑 Champion' : 'advances'}
+                </p>
+              )}
+            </div>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <span className="text-[9px] text-gray-500 uppercase tracking-wider">L1</span>
+              <ScoreInput val={l1V} setVal={l1Set} leg={1} />
+              {leg2 && <>
+                <span className="text-[9px] text-gray-500 uppercase tracking-wider ml-1">L2</span>
+                <ScoreInput val={l2V} setVal={l2Set} leg={2} />
+              </>}
+            </div>
           </div>
-          <div className="flex items-center gap-1.5 shrink-0 ml-1">
-            <span className="text-[10px] text-gray-500">L1</span>
-            <ScoreCell val={l1Val} setVal={setL1} leg={1} theirsWinning={l1Win} />
-            {leg2 && <>
-              <span className="text-[10px] text-gray-600">·</span>
-              <span className="text-[10px] text-gray-500">L2</span>
-              <ScoreCell val={l2Val} setVal={setL2} leg={2} theirsWinning={l2Win} />
-            </>}
-          </div>
-        </div>
-      ))}
-      {/* Aggregate row */}
+        ))}
+      </div>
+      {/* Aggregate */}
       {agg && (
-        <div className={`flex items-center justify-center gap-3 px-2.5 py-1 ${big ? 'bg-amber-950/40' : 'bg-gray-800/60'} border-t border-gray-700/40`}>
-          <span className={`${big ? 'text-base' : 'text-xs'} font-bold tabular-nums ${aWon ? (big ? 'text-amber-300' : 'text-indigo-400') : 'text-gray-400'}`}>{agg.aGoals}</span>
-          <span className="text-[10px] text-gray-500 uppercase tracking-wider">Agg</span>
-          <span className={`${big ? 'text-base' : 'text-xs'} font-bold tabular-nums ${bWon ? (big ? 'text-amber-300' : 'text-indigo-400') : 'text-gray-400'}`}>{agg.bGoals}</span>
+        <div className={`flex items-center justify-center gap-3 py-2 border-t border-gray-700/40 ${isFinal ? 'bg-amber-950/40' : 'bg-indigo-950/30'}`}>
+          <span className={`text-base font-black tabular-nums ${aWon ? (isFinal ? 'text-amber-300' : 'text-indigo-300') : 'text-gray-400'}`}>{agg.aGoals}</span>
+          <span className="text-[10px] text-gray-500 uppercase tracking-[0.2em]">Aggregate</span>
+          <span className={`text-base font-black tabular-nums ${bWon ? (isFinal ? 'text-amber-300' : 'text-indigo-300') : 'text-gray-400'}`}>{agg.bGoals}</span>
         </div>
       )}
-      {/* Inline save buttons for changed legs */}
+      {/* Save buttons */}
       {inline && (l1Changed || l2Changed) && (
         <div className="flex border-t border-gray-700/60">
           {l1Changed && (
             <button
               onClick={() => saveLeg(1)}
               disabled={savingLeg !== null}
-              className="flex-1 text-[10px] font-bold py-1.5 bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 text-white transition-all disabled:opacity-60"
-            >
+              className={`flex-1 py-2 text-xs font-bold uppercase tracking-wider transition-all disabled:opacity-60 ${
+                isFinal ? 'bg-gradient-to-r from-amber-500 to-amber-400 text-gray-900 hover:from-amber-400'
+                        : 'bg-gradient-to-r from-indigo-600 to-indigo-500 text-white hover:from-indigo-500'
+              }`}>
               {savingLeg === 1 ? 'Saving…' : '✓ Save L1'}
             </button>
           )}
@@ -292,23 +342,25 @@ function TwoLegCard({ leg1, leg2, playerMap, playerIndex, onEnterScore, onSubmit
             <button
               onClick={() => saveLeg(2)}
               disabled={savingLeg !== null}
-              className={`flex-1 text-[10px] font-bold py-1.5 bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 text-white transition-all disabled:opacity-60 ${l1Changed ? 'border-l border-gray-700/60' : ''}`}
-            >
+              className={`flex-1 py-2 text-xs font-bold uppercase tracking-wider transition-all disabled:opacity-60 ${l1Changed ? 'border-l border-gray-700/60' : ''} ${
+                isFinal ? 'bg-gradient-to-r from-amber-500 to-amber-400 text-gray-900 hover:from-amber-400'
+                        : 'bg-gradient-to-r from-indigo-600 to-indigo-500 text-white hover:from-indigo-500'
+              }`}>
               {savingLeg === 2 ? 'Saving…' : '✓ Save L2'}
             </button>
           )}
         </div>
       )}
-      {/* Legacy modal trigger when inline is off */}
+      {/* Legacy modal trigger */}
       {!inline && onEnterScore && (
         <div className="flex border-t border-gray-700/60">
           <button onClick={() => onEnterScore(leg1)}
-            className={`flex-1 text-[10px] font-semibold py-1.5 transition-colors ${leg1.status === 'completed' ? 'text-gray-500 hover:text-white hover:bg-indigo-600/60' : 'text-indigo-400 hover:text-white hover:bg-indigo-600/80'}`}>
+            className={`flex-1 py-2 text-xs font-semibold transition-colors ${leg1.status === 'completed' ? 'text-gray-500 hover:bg-indigo-600/60 hover:text-white' : 'text-indigo-400 hover:bg-indigo-600/80 hover:text-white'}`}>
             {leg1.status === 'completed' ? '✏️ Edit L1' : 'Leg 1 Score'}
           </button>
           {leg2 && (
             <button onClick={() => onEnterScore(leg2)}
-              className={`flex-1 text-[10px] font-semibold py-1.5 border-l border-gray-700/60 transition-colors ${leg2.status === 'completed' ? 'text-gray-500 hover:text-white hover:bg-indigo-600/60' : 'text-indigo-400 hover:text-white hover:bg-indigo-600/80'}`}>
+              className={`flex-1 py-2 text-xs font-semibold border-l border-gray-700/60 transition-colors ${leg2.status === 'completed' ? 'text-gray-500 hover:bg-indigo-600/60 hover:text-white' : 'text-indigo-400 hover:bg-indigo-600/80 hover:text-white'}`}>
               {leg2.status === 'completed' ? '✏️ Edit L2' : 'Leg 2 Score'}
             </button>
           )}
@@ -318,241 +370,138 @@ function TwoLegCard({ leg1, leg2, playerMap, playerIndex, onEnterScore, onSubmit
   )
 }
 
-// Render either single or two-leg card consistently
-function MatchCard({ matchup: m, ...rest }) {
-  if (!m) return null
-  return m.type === 'single'
-    ? <SingleCard fixture={m.f} {...rest} />
-    : <TwoLegCard leg1={m.leg1} leg2={m.leg2} {...rest} />
-}
-
-// ── Championship Finale (SF + Final + Trophy) ──────────────────────
-function ChampionshipFinale({ sfMatchups, finalMatchup, playerMap, playerIndex, onEnterScore, onSubmitScore, onCrownChampion, tournament }) {
-  const sf1 = sfMatchups[0]
-  const sf2 = sfMatchups[1]
-  const championId = matchupWinnerId(finalMatchup)
-  const runnerUpId = matchupLoserId(finalMatchup)
-  const champion = championId ? playerMap[championId] : null
-  const runnerUp = runnerUpId ? playerMap[runnerUpId] : null
-
-  return (
-    <div className="relative mt-8 mb-4 rounded-3xl overflow-hidden border border-amber-900/40 bg-gradient-to-b from-gray-950 via-indigo-950/30 to-amber-950/20">
-      {/* Decorative glow */}
-      <div className="absolute -top-32 left-1/2 -translate-x-1/2 w-[600px] h-[600px] rounded-full bg-amber-500/10 blur-3xl pointer-events-none" />
-      <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-transparent via-amber-400 to-transparent shadow-[0_0_20px_rgba(251,191,36,0.6)]" />
-
-      <div className="relative px-4 sm:px-8 py-8">
-        {/* Title */}
-        <div className="text-center mb-8">
-          <p className="text-[10px] font-bold uppercase tracking-[0.3em] text-amber-400/70">The Road to Glory</p>
-          <h2 className="text-2xl sm:text-3xl font-black mt-1 bg-gradient-to-r from-amber-200 via-amber-400 to-amber-200 bg-clip-text text-transparent drop-shadow-lg">
-            Championship Finale
-          </h2>
-        </div>
-
-        {/* Semi-finals row */}
-        {sfMatchups.length > 0 && (
-          <div className="mb-2">
-            <p className="text-center text-[11px] font-bold uppercase tracking-wider text-indigo-300 mb-3">Semi-Finals</p>
-            <div className="flex items-start justify-center gap-4 sm:gap-12 flex-wrap">
-              {sf1 && (
-                <div className="flex flex-col items-center">
-                  <span className="text-[10px] text-gray-500 mb-1">SF 1</span>
-                  <MatchCard matchup={sf1} playerMap={playerMap} playerIndex={playerIndex} onEnterScore={onEnterScore} onSubmitScore={onSubmitScore} />
-                </div>
-              )}
-              {sf2 && (
-                <div className="flex flex-col items-center">
-                  <span className="text-[10px] text-gray-500 mb-1">SF 2</span>
-                  <MatchCard matchup={sf2} playerMap={playerMap} playerIndex={playerIndex} onEnterScore={onEnterScore} onSubmitScore={onSubmitScore} />
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Connector arrows down to final */}
-        {sfMatchups.length > 0 && (
-          <div className="flex justify-center my-3">
-            <div className="relative w-[260px] sm:w-[420px] h-10">
-              <div className="absolute left-0 top-0 w-1/2 h-full border-r-2 border-b-2 border-amber-700/50 rounded-br-2xl" />
-              <div className="absolute right-0 top-0 w-1/2 h-full border-l-2 border-b-2 border-amber-700/50 rounded-bl-2xl" />
-              <div className="absolute left-1/2 top-full -translate-x-1/2 -translate-y-1 w-1 h-3 bg-amber-700/50" />
-            </div>
-          </div>
-        )}
-
-        {/* Final */}
-        {finalMatchup && (
-          <div className="flex flex-col items-center">
-            <p className="text-center text-[11px] font-bold uppercase tracking-[0.3em] text-amber-300 mb-3">⚔️ Grand Final ⚔️</p>
-            <MatchCard matchup={finalMatchup} playerMap={playerMap} playerIndex={playerIndex} onEnterScore={onEnterScore} onSubmitScore={onSubmitScore} big />
-          </div>
-        )}
-
-        {/* Trophy + Champion */}
-        <div className="flex flex-col items-center mt-8">
-          <div className="text-7xl trophy-shine drop-shadow-[0_0_25px_rgba(251,191,36,0.6)]">🏆</div>
-          {champion ? (
-            <>
-              <p className="mt-3 text-[10px] uppercase tracking-[0.3em] text-amber-400/80">Champion</p>
-              <p className="text-3xl sm:text-4xl font-black bg-gradient-to-r from-amber-200 via-yellow-300 to-amber-400 bg-clip-text text-transparent drop-shadow-lg">
-                {champion.name}
-              </p>
-              {runnerUp && (
-                <p className="mt-1 text-xs text-gray-400">Runner-up: <span className="text-gray-200">{runnerUp.name}</span></p>
-              )}
-              {onCrownChampion && (
-                <button
-                  onClick={() => onCrownChampion(champion, runnerUp)}
-                  className="mt-4 inline-flex items-center gap-2 bg-gradient-to-r from-amber-500 via-yellow-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-gray-900 font-black px-6 py-3 rounded-xl text-sm shadow-2xl shadow-amber-900/50 transition-all hover:-translate-y-0.5"
-                >
-                  📸 Upload Photo & Generate Champion Poster
-                </button>
-              )}
-            </>
-          ) : (
-            <p className="mt-3 text-sm text-gray-500 italic">Awaiting the final result…</p>
-          )}
-        </div>
-
-        {tournament?.name && (
-          <p className="text-center text-[10px] uppercase tracking-[0.3em] text-gray-600 mt-8">
-            {tournament.name}
-          </p>
-        )}
-      </div>
-    </div>
-  )
-}
-
-// ── Main bracket component ─────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════
+//   Main bracket — vertical "playoff path" layout.
+//
+//   ━━━ QUARTER-FINALS ━━━
+//   [M1] [M2] [M3] [M4]
+//          ↓
+//   ━━━ SEMI-FINALS ━━━
+//      [M1]  [M2]
+//          ↓
+//   ━━━ FINAL ━━━
+//          [M1]
+//          ↓
+//          🏆
+//      CHAMPION
+// ═══════════════════════════════════════════════════════════════════
 export default function KnockoutBracket({ fixtures, players, onEnterScore, onSubmitScore, onCrownChampion, tournament }) {
-  const playerMap = Object.fromEntries((players ?? []).map(p => [p.id, p]))
+  const playerMap   = Object.fromEntries((players ?? []).map(p => [p.id, p]))
   const playerIndex = Object.fromEntries((players ?? []).map((p, i) => [p.id, i]))
 
   const matchups = buildMatchups(fixtures ?? [])
-  const rounds = [...new Set(matchups.map(m => m.round))].sort((a, b) => a - b)
-  const hasTwoLeg = matchups.some(m => m.type === 'two-leg')
+  const rounds   = [...new Set(matchups.map(m => m.round))].sort((a, b) => a - b)
 
   if (!matchups.length) {
     return <p className="text-gray-400 text-sm py-4 text-center">No bracket generated yet.</p>
   }
 
-  // Split off SF + Final for the championship finale layout.
-  // The final round must have exactly 1 matchup, and SF round (if any) has up to 2.
-  const lastRound = rounds[rounds.length - 1]
-  const finalMatchups = matchups.filter(m => m.round === lastRound)
-  const showFinale = finalMatchups.length === 1   // confirmed final round
-
-  let finalMatchup = null
-  let sfMatchups = []
-  let preRounds = rounds
-
-  if (showFinale) {
-    finalMatchup = finalMatchups[0]
-    preRounds = rounds.slice(0, -1)              // everything before final
-    if (preRounds.length >= 1) {
-      const sfRound = preRounds[preRounds.length - 1]
-      const sf = matchups.filter(m => m.round === sfRound)
-      // SF round should have exactly 2 matchups to qualify as a semifinal
-      if (sf.length === 2) {
-        sfMatchups = sf
-        preRounds = preRounds.slice(0, -1)        // exclude SF from horizontal bracket
-      }
-    }
-  }
-
-  const preBracketHasContent = preRounds.length > 0
+  // The Final is the last round only if it contains exactly 1 match.
+  const lastRound       = rounds[rounds.length - 1]
+  const lastRoundFx     = matchups.filter(m => m.round === lastRound)
+  const hasFinal        = lastRoundFx.length === 1
+  const finalMatchup    = hasFinal ? lastRoundFx[0] : null
+  const championId      = finalMatchup ? matchupWinnerId(finalMatchup) : null
+  const runnerUpId      = finalMatchup ? matchupLoserId(finalMatchup) : null
+  const champion        = championId ? playerMap[championId] : null
+  const runnerUp        = runnerUpId ? playerMap[runnerUpId] : null
 
   return (
-    <div>
-      {/* Horizontal bracket — QFs and earlier rounds */}
-      {preBracketHasContent && (
-        <div className="overflow-x-auto pb-4 -mx-2 px-2">
-          <div className="flex min-w-max pt-2 gap-0">
-            {preRounds.map((round, rIdx) => {
-              const roundMatchups = matchups
-                .filter(m => m.round === round)
-                .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))
+    <div className="space-y-6">
+      {rounds.map((round, rIdx) => {
+        const roundMatchups = matchups
+          .filter(m => m.round === round)
+          .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))
+        const isFinalRound = roundMatchups.length === 1 && rIdx === rounds.length - 1
+        const isLastRendered = rIdx === rounds.length - 1
+        const label = roundLabel(roundMatchups.length)
 
-              const sh = slotH(rIdx, hasTwoLeg)
-              const isLast = rIdx === preRounds.length - 1 && !showFinale
-              const numPairs = Math.floor(roundMatchups.length / 2)
+        // Grid columns adapt to match count
+        const gridCols =
+          roundMatchups.length === 1 ? 'grid-cols-1 max-w-md mx-auto'
+          : roundMatchups.length === 2 ? 'grid-cols-1 sm:grid-cols-2 max-w-3xl mx-auto'
+          : roundMatchups.length === 4 ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-4'
+          : 'grid-cols-2 md:grid-cols-4 lg:grid-cols-8'
 
-              return (
-                <React.Fragment key={round}>
-                  {/* ── Round column ── */}
-                  <div style={{ width: CARD_W }}>
-                    <p className="text-[11px] font-semibold uppercase text-gray-400 text-center mb-3 tracking-wider">
-                      {roundLabel(roundMatchups.length)}
-                    </p>
-                    {roundMatchups.map((m) => (
-                      <div key={m.type === 'single' ? m.f.id : m.leg1.id}
-                           style={{ height: sh, display: 'flex', alignItems: 'center' }}>
-                        <MatchCard matchup={m} playerMap={playerMap} playerIndex={playerIndex} onEnterScore={onEnterScore} onSubmitScore={onSubmitScore} />
-                      </div>
-                    ))}
-                  </div>
+        return (
+          <div key={round}>
+            {/* Round divider with title */}
+            <div className="flex items-center gap-3 mb-4">
+              <div className={`flex-1 h-px bg-gradient-to-r from-transparent ${isFinalRound ? 'via-amber-500/40 to-amber-500/60' : 'via-indigo-500/30 to-indigo-500/60'}`} />
+              <span className={`text-[10px] sm:text-xs font-black uppercase tracking-[0.3em] px-4 py-1.5 rounded-full border ${
+                isFinalRound
+                  ? 'text-amber-300 bg-amber-950/60 border-amber-700/60 shadow-[0_0_20px_rgba(251,191,36,0.25)]'
+                  : 'text-indigo-300 bg-indigo-950/60 border-indigo-700/50'
+              }`}>
+                {isFinalRound && '⚔️ '}{label}{isFinalRound && ' ⚔️'}
+              </span>
+              <div className={`flex-1 h-px bg-gradient-to-l from-transparent ${isFinalRound ? 'via-amber-500/40 to-amber-500/60' : 'via-indigo-500/30 to-indigo-500/60'}`} />
+            </div>
 
-                  {/* ── Connector column ── */}
-                  {!isLast && (
-                    <div style={{ width: COL_GAP, display: 'flex', flexDirection: 'column' }}>
-                      <div style={{ height: 32 }} />
+            {/* Match cards grid */}
+            <div className={`grid gap-3 ${gridCols}`}>
+              {roundMatchups.map(m => (
+                <PlayoffCard
+                  key={m.type === 'single' ? m.f.id : m.leg1.id}
+                  matchup={m}
+                  playerMap={playerMap}
+                  playerIndex={playerIndex}
+                  onSubmitScore={onSubmitScore}
+                  onEnterScore={onEnterScore}
+                  accent={isFinalRound ? 'final' : 'indigo'}
+                />
+              ))}
+            </div>
 
-                      {Array.from({ length: numPairs }).map((_, pIdx) => (
-                        <div key={pIdx} style={{ height: sh * 2, width: COL_GAP, position: 'relative' }}>
-                          <div style={{ height: sh, width: COL_GAP - 8, display: 'flex', flexDirection: 'column' }}>
-                            <div style={{
-                              flex: 1,
-                              borderRight: `2px solid ${LINE_COLOR}`,
-                              borderBottom: `2px solid ${LINE_COLOR}`,
-                              borderBottomRightRadius: 6,
-                            }} />
-                            <div style={{
-                              flex: 1,
-                              borderRight: `2px solid ${LINE_COLOR}`,
-                              borderTop: `2px solid ${LINE_COLOR}`,
-                              borderTopRightRadius: 6,
-                            }} />
-                          </div>
-                          <div style={{
-                            position: 'absolute',
-                            top: sh - 1,
-                            left: COL_GAP - 8,
-                            right: 0,
-                            height: 2,
-                            backgroundColor: LINE_COLOR,
-                          }} />
-                        </div>
-                      ))}
+            {/* Arrow down to next round */}
+            {!isLastRendered && (
+              <div className="flex justify-center my-4">
+                <div className="relative flex flex-col items-center">
+                  <div className="w-px h-6 bg-gradient-to-b from-indigo-500/60 to-transparent" />
+                  <div className="w-2 h-2 rounded-full bg-indigo-400 shadow-[0_0_12px_rgba(99,102,241,0.8)]" />
+                  <div className="w-px h-6 bg-gradient-to-t from-indigo-500/60 to-transparent" />
+                </div>
+              </div>
+            )}
+          </div>
+        )
+      })}
 
-                      {roundMatchups.length % 2 === 1 && (
-                        <div style={{ height: sh, display: 'flex', alignItems: 'center' }}>
-                          <div style={{ width: COL_GAP, borderTop: `2px solid ${LINE_COLOR}` }} />
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </React.Fragment>
-              )
-            })}
+      {/* Trophy + Champion footer (only when there's a Final round) */}
+      {hasFinal && (
+        <div className="mt-8 pt-6 relative">
+          {/* Glow */}
+          <div className="absolute -top-12 left-1/2 -translate-x-1/2 w-[500px] h-[500px] rounded-full bg-amber-500/10 blur-3xl pointer-events-none" />
+          <div className="relative flex flex-col items-center">
+            <div className="text-7xl trophy-shine drop-shadow-[0_0_25px_rgba(251,191,36,0.6)]">🏆</div>
+            {champion ? (
+              <>
+                <p className="mt-3 text-[10px] uppercase tracking-[0.3em] text-amber-400/80">Champion</p>
+                <p className="text-3xl sm:text-4xl font-black bg-gradient-to-r from-amber-200 via-yellow-300 to-amber-400 bg-clip-text text-transparent drop-shadow-lg">
+                  {champion.name}
+                </p>
+                {runnerUp && (
+                  <p className="mt-1 text-xs text-gray-400">Runner-up: <span className="text-gray-200">{runnerUp.name}</span></p>
+                )}
+                {onCrownChampion && (
+                  <button
+                    onClick={() => onCrownChampion(champion, runnerUp)}
+                    className="mt-4 inline-flex items-center gap-2 bg-gradient-to-r from-amber-500 via-yellow-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-gray-900 font-black px-6 py-3 rounded-xl text-sm shadow-2xl shadow-amber-900/50 transition-all hover:-translate-y-0.5"
+                  >
+                    📸 Upload Photo &amp; Generate Champion Poster
+                  </button>
+                )}
+              </>
+            ) : (
+              <p className="mt-3 text-sm text-gray-500 italic">Awaiting the final result…</p>
+            )}
+            {tournament?.name && (
+              <p className="text-center text-[10px] uppercase tracking-[0.3em] text-gray-600 mt-8">
+                {tournament.name}
+              </p>
+            )}
           </div>
         </div>
-      )}
-
-      {/* Championship finale layout (SF + F + Trophy) */}
-      {showFinale && (
-        <ChampionshipFinale
-          sfMatchups={sfMatchups}
-          finalMatchup={finalMatchup}
-          playerMap={playerMap}
-          playerIndex={playerIndex}
-          onEnterScore={onEnterScore}
-          onSubmitScore={onSubmitScore}
-          onCrownChampion={onCrownChampion}
-          tournament={tournament}
-        />
       )}
     </div>
   )

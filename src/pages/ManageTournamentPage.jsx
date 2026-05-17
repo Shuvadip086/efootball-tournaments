@@ -1145,6 +1145,7 @@ export default function ManageTournamentPage() {
             <SettingsPanel
               tournament={tournament}
               fixtures={fixtures}
+              players={players}
               onSaved={refetch}
             />
           )}
@@ -1402,7 +1403,7 @@ function MatchRow({ fixture: f, playerMap, onEnterScore }) {
 }
 
 // ── Settings panel ────────────────────────────────────────────────
-function SettingsPanel({ tournament, fixtures, onSaved }) {
+function SettingsPanel({ tournament, fixtures, players = [], onSaved }) {
   const navigate = useNavigate()
   const [name,        setName]        = useState(tournament.name        ?? '')
   const [description, setDescription] = useState(tournament.description ?? '')
@@ -1575,6 +1576,9 @@ function SettingsPanel({ tournament, fixtures, onSaved }) {
         )}
       </div>
 
+      {/* Knockout bracket editor */}
+      <BracketEditor tournament={tournament} fixtures={fixtures} players={players} onSaved={onSaved} />
+
       {/* Danger zone */}
       <section className="border-2 border-red-900/60 bg-red-950/20 rounded-2xl p-5 mt-8">
         <h3 className="text-sm font-bold text-red-400 uppercase tracking-wider mb-2">⚠️ Danger Zone</h3>
@@ -1588,6 +1592,234 @@ function SettingsPanel({ tournament, fixtures, onSaved }) {
           🗑 Delete tournament
         </button>
       </section>
+    </div>
+  )
+}
+
+// ── Knockout Bracket Editor ───────────────────────────────────────
+// Lets the user manually assign players to any knockout matchup
+// (most useful for Semi-Finals and the Final). Saving updates the
+// home_player_id / away_player_id on the underlying fixture(s) —
+// for two-leg ties both legs are updated with players swapped so
+// home/away alternates correctly.
+function BracketEditor({ tournament, fixtures, players, onSaved }) {
+  // Only show knockout-phase fixtures
+  const knockoutFx = (fixtures ?? []).filter(f => {
+    if (tournament?.format === 'knockout') return true
+    return (f.phase ?? 'regular') === 'knockout'
+  })
+
+  if (knockoutFx.length === 0) {
+    return (
+      <section className="bg-gray-900/40 border border-gray-800 rounded-2xl p-5 mt-8">
+        <h3 className="text-sm font-bold text-indigo-300 uppercase tracking-wider mb-1">⚔️ Bracket Editor</h3>
+        <p className="text-xs text-gray-500">
+          No knockout fixtures yet. Generate them from the Players tab first, then come back here to manually pick the matchups.
+        </p>
+      </section>
+    )
+  }
+
+  // Build matchups (single or two-leg by pair_id)
+  const byPair = {}, noPair = []
+  knockoutFx.forEach(f => {
+    if (f.pair_id) (byPair[f.pair_id] ??= []).push(f)
+    else noPair.push(f)
+  })
+  const matchups = []
+  noPair.forEach(f => matchups.push({ type: 'single', f, round: f.round, createdAt: f.created_at }))
+  Object.values(byPair).forEach(legs => {
+    const leg1 = legs.find(l => l.leg === 1) ?? legs[0]
+    const leg2 = legs.find(l => l.leg === 2)
+    matchups.push({ type: 'two-leg', leg1, leg2, round: leg1.round, createdAt: leg1.created_at })
+  })
+  matchups.sort((a, b) => a.round - b.round || new Date(a.createdAt) - new Date(b.createdAt))
+
+  // Group by round for nice section headers
+  const roundsMap = {}
+  matchups.forEach(m => { (roundsMap[m.round] ??= []).push(m) })
+  const sortedRounds = Object.keys(roundsMap).map(Number).sort((a, b) => a - b)
+
+  const labelFor = (matchCount) => {
+    if (matchCount === 1) return 'Final'
+    if (matchCount === 2) return 'Semi-Finals'
+    if (matchCount === 4) return 'Quarter-Finals'
+    if (matchCount === 8) return 'Round of 16'
+    return `Round of ${matchCount * 2}`
+  }
+
+  return (
+    <section className="bg-gray-900/60 border border-indigo-800/40 rounded-2xl p-5 mt-8">
+      <div className="flex items-start justify-between gap-3 mb-3">
+        <div>
+          <h3 className="text-sm font-bold text-indigo-300 uppercase tracking-wider">⚔️ Bracket Editor</h3>
+          <p className="text-xs text-gray-500 mt-1">
+            Manually assign players to any knockout match. Scores already entered are kept — only the player names change.
+          </p>
+        </div>
+      </div>
+
+      <div className="space-y-5">
+        {sortedRounds.map(r => {
+          const ms = roundsMap[r]
+          return (
+            <div key={r}>
+              <p className="text-[10px] font-black uppercase tracking-[0.3em] text-indigo-400 mb-2">
+                {labelFor(ms.length)}
+              </p>
+              <div className="space-y-2">
+                {ms.map((m, idx) => (
+                  <MatchupRow
+                    key={m.type === 'single' ? m.f.id : m.leg1.id}
+                    matchup={m}
+                    index={idx}
+                    players={players}
+                    onSaved={onSaved}
+                  />
+                ))}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </section>
+  )
+}
+
+// One editable matchup row inside the bracket editor.
+function MatchupRow({ matchup: m, index, players, onSaved }) {
+  const [homeId, setHomeId] = useState(
+    m.type === 'single' ? m.f.home_player_id : m.leg1.home_player_id
+  )
+  const [awayId, setAwayId] = useState(
+    m.type === 'single' ? m.f.away_player_id : m.leg1.away_player_id
+  )
+  const [saving, setSaving] = useState(false)
+  const [savedFlag, setSavedFlag] = useState(false)
+  const [err, setErr] = useState('')
+
+  const originalHome = m.type === 'single' ? m.f.home_player_id : m.leg1.home_player_id
+  const originalAway = m.type === 'single' ? m.f.away_player_id : m.leg1.away_player_id
+  const changed     = homeId !== originalHome || awayId !== originalAway
+  const sameBoth    = homeId && awayId && homeId === awayId
+
+  const save = async () => {
+    if (!changed || sameBoth) return
+    setSaving(true); setErr('')
+    try {
+      if (m.type === 'single') {
+        const { error } = await supabase
+          .from('fixtures')
+          .update({ home_player_id: homeId, away_player_id: awayId })
+          .eq('id', m.f.id)
+        if (error) throw error
+      } else {
+        // Leg 1: A home vs B away
+        const { error: e1 } = await supabase
+          .from('fixtures')
+          .update({ home_player_id: homeId, away_player_id: awayId })
+          .eq('id', m.leg1.id)
+        if (e1) throw e1
+        // Leg 2: swapped — B home vs A away
+        if (m.leg2) {
+          const { error: e2 } = await supabase
+            .from('fixtures')
+            .update({ home_player_id: awayId, away_player_id: homeId })
+            .eq('id', m.leg2.id)
+          if (e2) throw e2
+        }
+      }
+      setSavedFlag(true)
+      setTimeout(() => setSavedFlag(false), 2000)
+      onSaved?.()
+    } catch (e) {
+      setErr(e.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const reset = () => {
+    setHomeId(originalHome)
+    setAwayId(originalAway)
+  }
+
+  // Has either fixture got a score recorded? Warn before changing.
+  const hasScore = m.type === 'single'
+    ? m.f.status === 'completed'
+    : (m.leg1.status === 'completed' || m.leg2?.status === 'completed')
+
+  return (
+    <div className="bg-gray-800/60 border border-gray-700/60 rounded-xl p-3">
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-[10px] uppercase tracking-wider text-gray-500 font-bold shrink-0">
+          M{index + 1}
+        </span>
+
+        <select
+          value={homeId ?? ''}
+          onChange={e => setHomeId(e.target.value || null)}
+          disabled={saving}
+          className="flex-1 min-w-[120px] bg-gray-900 border border-gray-700 rounded-lg px-2.5 py-1.5 text-sm text-white focus:outline-none focus:border-indigo-500"
+        >
+          <option value="">— pick —</option>
+          {players.map(p => (
+            <option key={p.id} value={p.id}>{p.name}</option>
+          ))}
+        </select>
+
+        <span className="text-xs text-gray-500 font-bold">vs</span>
+
+        <select
+          value={awayId ?? ''}
+          onChange={e => setAwayId(e.target.value || null)}
+          disabled={saving}
+          className="flex-1 min-w-[120px] bg-gray-900 border border-gray-700 rounded-lg px-2.5 py-1.5 text-sm text-white focus:outline-none focus:border-indigo-500"
+        >
+          <option value="">— pick —</option>
+          {players.map(p => (
+            <option key={p.id} value={p.id}>{p.name}</option>
+          ))}
+        </select>
+
+        {m.type === 'two-leg' && (
+          <span className="text-[9px] uppercase tracking-wider text-amber-400/80 font-bold shrink-0 bg-amber-950/40 px-2 py-1 rounded">
+            2-leg
+          </span>
+        )}
+
+        <div className="flex items-center gap-2 ml-auto">
+          {changed && (
+            <button
+              onClick={reset}
+              disabled={saving}
+              className="text-[11px] text-gray-400 hover:text-white px-2 py-1 rounded transition-colors"
+            >
+              Reset
+            </button>
+          )}
+          <button
+            onClick={save}
+            disabled={!changed || saving || sameBoth}
+            className="text-xs font-bold px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed text-white transition-colors"
+          >
+            {saving ? 'Saving…' : savedFlag ? '✓ Saved' : 'Save'}
+          </button>
+        </div>
+      </div>
+
+      {/* Inline warnings / errors */}
+      {sameBoth && (
+        <p className="text-[11px] text-amber-400 mt-1.5">⚠️ Both players are the same — pick different ones.</p>
+      )}
+      {hasScore && changed && !sameBoth && (
+        <p className="text-[11px] text-amber-400 mt-1.5">
+          ⚠️ This match has a recorded score — saving will keep the score but change the players.
+        </p>
+      )}
+      {err && (
+        <p className="text-[11px] text-red-400 mt-1.5">{err}</p>
+      )}
     </div>
   )
 }

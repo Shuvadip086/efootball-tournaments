@@ -308,14 +308,63 @@ export default function ManageTournamentPage() {
     }
   }
 
+  // For a two-leg knockout tie, the actual winner is determined by
+  // aggregate goals across both legs — not by who wins one leg.
+  // Given the (possibly updated) state of leg1 + leg2, return:
+  //   { aId, bId, aGoals, bGoals, winnerId }   (winnerId null if draw/incomplete)
+  const aggregateWinner = (leg1, leg2) => {
+    if (!leg1 || !leg2) return { winnerId: null }
+    if (leg1.status !== 'completed' || leg2.status !== 'completed') return { winnerId: null }
+    const aId = leg1.home_player_id   // Player A — home in leg 1
+    const bId = leg1.away_player_id   // Player B — away in leg 1
+    const aGoals = (leg1.home_score ?? 0) + (leg2.away_score ?? 0) // A: L1 home + L2 away
+    const bGoals = (leg1.away_score ?? 0) + (leg2.home_score ?? 0) // B: L1 away + L2 home
+    let winnerId = null
+    if (aGoals > bGoals) winnerId = aId
+    else if (bGoals > aGoals) winnerId = bId
+    return { aId, bId, aGoals, bGoals, winnerId }
+  }
+
+  // Compute the matchup-level winner (aggregate for two-leg, score for single-leg)
+  // BEFORE the edit — using whatever scores are currently stored on the fixture(s).
+  const winnerBeforeEdit = (fixture) => {
+    if (!isKnockoutFixture(fixture)) return null
+    if (fixture.pair_id) {
+      const legs = fixtures.filter(f => f.pair_id === fixture.pair_id)
+      const leg1 = legs.find(l => l.leg === 1) ?? legs[0]
+      const leg2 = legs.find(l => l.leg === 2)
+      return aggregateWinner(leg1, leg2).winnerId
+    }
+    if (fixture.status !== 'completed') return null
+    if (fixture.home_score > fixture.away_score) return fixture.home_player_id
+    if (fixture.away_score > fixture.home_score) return fixture.away_player_id
+    return null
+  }
+
+  // Compute the matchup-level winner AFTER the edit — by simulating the
+  // edited fixture's new scores against the unchanged sibling leg.
+  const winnerAfterEdit = (fixture, homeScore, awayScore) => {
+    if (!isKnockoutFixture(fixture)) return null
+    if (fixture.pair_id) {
+      const legs = fixtures.filter(f => f.pair_id === fixture.pair_id)
+      const leg1 = legs.find(l => l.leg === 1) ?? legs[0]
+      const leg2 = legs.find(l => l.leg === 2)
+      // Substitute the edited leg's new scores
+      const sub = (l) => l?.id === fixture.id
+        ? { ...l, home_score: homeScore, away_score: awayScore, status: 'completed' }
+        : l
+      return aggregateWinner(sub(leg1), sub(leg2)).winnerId
+    }
+    if (homeScore > awayScore) return fixture.home_player_id
+    if (awayScore > homeScore) return fixture.away_player_id
+    return null
+  }
+
   // Shared scoring flow — used by both modal and inline editors.
   const recordScore = async (fixture, homeScore, awayScore) => {
-    // Capture old winner BEFORE the RPC mutates the fixture
-    let oldWinnerId = null
-    if (isKnockoutFixture(fixture) && fixture.status === 'completed') {
-      if (fixture.home_score > fixture.away_score) oldWinnerId = fixture.home_player_id
-      else if (fixture.away_score > fixture.home_score) oldWinnerId = fixture.away_player_id
-    }
+    // Capture matchup-level winner BEFORE the RPC mutates anything
+    const oldWinnerId = winnerBeforeEdit(fixture)
+
     const { error: err } = await supabase.rpc('process_match_result', {
       p_fixture_id: fixture.id,
       p_home_score: homeScore,
@@ -323,12 +372,10 @@ export default function ManageTournamentPage() {
     })
     if (err) { setActionError(err.message); return }
 
-    // Compute new winner from the just-saved scores
-    let newWinnerId = null
-    if (isKnockoutFixture(fixture)) {
-      if (homeScore > awayScore) newWinnerId = fixture.home_player_id
-      else if (awayScore > homeScore) newWinnerId = fixture.away_player_id
-    }
+    // Compute matchup-level winner AFTER the edit — accounts for aggregate
+    // when this is a two-leg tie (so editing just leg 2 can correctly
+    // detect that the aggregate winner flipped).
+    const newWinnerId = winnerAfterEdit(fixture, homeScore, awayScore)
     await maybePropagateWinnerChange(fixture, oldWinnerId, newWinnerId)
   }
 

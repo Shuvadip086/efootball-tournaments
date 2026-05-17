@@ -13,13 +13,16 @@ function slotH(rIdx, twoLeg) {
   return (ch + GAP) * Math.pow(2, rIdx)
 }
 
-function roundLabel(rIdx, total) {
-  const fromEnd = total - 1 - rIdx
-  if (fromEnd === 0) return 'Final'
-  if (fromEnd === 1) return 'Semi-Finals'
-  if (fromEnd === 2) return 'Quarter-Finals'
-  if (fromEnd === 3) return 'Round of 16'
-  return `Round ${rIdx + 1}`
+// Label by how many matches are in that round — more reliable than
+// counting back from the last round (which is wrong when the Final
+// hasn't been generated yet, e.g. mid-tournament you see QF + SF only).
+function roundLabel(matchCount) {
+  if (matchCount === 1)  return 'Final'
+  if (matchCount === 2)  return 'Semi-Finals'
+  if (matchCount === 4)  return 'Quarter-Finals'
+  if (matchCount === 8)  return 'Round of 16'
+  if (matchCount === 16) return 'Round of 32'
+  return `Round of ${matchCount * 2}`
 }
 
 // ── Group fixtures into single-leg or two-legged matchups ──────────
@@ -482,7 +485,7 @@ export default function KnockoutBracket({ fixtures, players, onEnterScore, onSub
                   {/* ── Round column ── */}
                   <div style={{ width: CARD_W }}>
                     <p className="text-[11px] font-semibold uppercase text-gray-400 text-center mb-3 tracking-wider">
-                      {roundLabel(rIdx, rounds.length)}
+                      {roundLabel(roundMatchups.length)}
                     </p>
                     {roundMatchups.map((m) => (
                       <div key={m.type === 'single' ? m.f.id : m.leg1.id}

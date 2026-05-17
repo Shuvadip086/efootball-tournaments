@@ -248,18 +248,91 @@ export default function ManageTournamentPage() {
     setScores({ home: fixture.home_score ?? '', away: fixture.away_score ?? '' })
   }
 
+  // Determines if a fixture is a knockout-phase fixture (for either format)
+  const isKnockoutFixture = (f) => {
+    if (!f) return false
+    if (tournament?.format === 'knockout') return true
+    return (f.phase ?? 'regular') === 'knockout'
+  }
+
+  // After a knockout score change, find any downstream fixtures that referenced
+  // the OLD winner and offer to swap them to the NEW winner.
+  const maybePropagateWinnerChange = async (fixture, oldWinnerId, newWinnerId) => {
+    if (!oldWinnerId || !newWinnerId || oldWinnerId === newWinnerId) return
+    if (!isKnockoutFixture(fixture)) return
+
+    const downstream = fixtures.filter(other =>
+      other.id !== fixture.id &&
+      isKnockoutFixture(other) &&
+      (other.round ?? 1) > (fixture.round ?? 1) &&
+      (other.home_player_id === oldWinnerId || other.away_player_id === oldWinnerId)
+    )
+    if (downstream.length === 0) return
+
+    const oldName = players.find(p => p.id === oldWinnerId)?.name ?? 'previous winner'
+    const newName = players.find(p => p.id === newWinnerId)?.name ?? 'new winner'
+    const opponentName = players.find(p => {
+      const d = downstream[0]
+      const oppId = d.home_player_id === oldWinnerId ? d.away_player_id : d.home_player_id
+      return p.id === oppId
+    })?.name ?? 'opponent'
+
+    const proceed = confirm(
+      `🔄 The winner of this match changed from "${oldName}" to "${newName}".\n\n` +
+      `Update the next round so "${newName}" plays "${opponentName}"?\n\n` +
+      `OK   = update opponent name in the next round\n` +
+      `Cancel = keep the bracket as-is (the next round still shows "${oldName}")`
+    )
+    if (!proceed) return
+
+    // Swap player IDs on every downstream fixture that referenced the old winner.
+    for (const f of downstream) {
+      const patch = f.home_player_id === oldWinnerId
+        ? { home_player_id: newWinnerId }
+        : { away_player_id: newWinnerId }
+      const { error } = await supabase.from('fixtures').update(patch).eq('id', f.id)
+      if (error) { setActionError(error.message); return }
+    }
+  }
+
+  // Shared scoring flow — used by both modal and inline editors.
+  const recordScore = async (fixture, homeScore, awayScore) => {
+    // Capture old winner BEFORE the RPC mutates the fixture
+    let oldWinnerId = null
+    if (isKnockoutFixture(fixture) && fixture.status === 'completed') {
+      if (fixture.home_score > fixture.away_score) oldWinnerId = fixture.home_player_id
+      else if (fixture.away_score > fixture.home_score) oldWinnerId = fixture.away_player_id
+    }
+    const { error: err } = await supabase.rpc('process_match_result', {
+      p_fixture_id: fixture.id,
+      p_home_score: homeScore,
+      p_away_score: awayScore,
+    })
+    if (err) { setActionError(err.message); return }
+
+    // Compute new winner from the just-saved scores
+    let newWinnerId = null
+    if (isKnockoutFixture(fixture)) {
+      if (homeScore > awayScore) newWinnerId = fixture.home_player_id
+      else if (awayScore > homeScore) newWinnerId = fixture.away_player_id
+    }
+    await maybePropagateWinnerChange(fixture, oldWinnerId, newWinnerId)
+  }
+
   const submitScore = async () => {
     if (scores.home === '' || scores.away === '') return
     setActionLoading(true)
     setActionError('')
-    const { error: err } = await supabase.rpc('process_match_result', {
-      p_fixture_id: scoreModal.id,
-      p_home_score: parseInt(scores.home),
-      p_away_score: parseInt(scores.away),
-    })
-    if (err) setActionError(err.message)
+    await recordScore(scoreModal, parseInt(scores.home), parseInt(scores.away))
     setScoreModal(null)
     setActionLoading(false)
+    refetch()
+  }
+
+  // Inline score submitter — called by the new editable knockout cards.
+  const submitInlineScore = async (fixture, home, away) => {
+    setActionError('')
+    await recordScore(fixture, home, away)
     refetch()
   }
 
@@ -765,13 +838,13 @@ export default function ManageTournamentPage() {
                           Knockout Stage
                         </span>
                       </div>
-                      <KnockoutBracket fixtures={knockoutFixtures} players={players} onEnterScore={openScoreModal} onCrownChampion={handleCrownChampion} tournament={tournament} />
+                      <KnockoutBracket fixtures={knockoutFixtures} players={players} onEnterScore={openScoreModal} onSubmitScore={submitInlineScore} onCrownChampion={handleCrownChampion} tournament={tournament} />
                     </div>
                   )}
                 </>
 
               ) : tournament?.format === 'knockout' ? (
-                <KnockoutBracket fixtures={fixtures} players={players} onEnterScore={openScoreModal} onCrownChampion={handleCrownChampion} tournament={tournament} />
+                <KnockoutBracket fixtures={fixtures} players={players} onEnterScore={openScoreModal} onSubmitScore={submitInlineScore} onCrownChampion={handleCrownChampion} tournament={tournament} />
 
               ) : (
                 /* League */
@@ -863,7 +936,7 @@ export default function ManageTournamentPage() {
                 <LeagueTable standings={standings} players={players} />
               )}
               {tournament?.format === 'knockout' && (
-                <KnockoutBracket fixtures={fixtures} players={players} onEnterScore={openScoreModal} onCrownChampion={handleCrownChampion} tournament={tournament} />
+                <KnockoutBracket fixtures={fixtures} players={players} onEnterScore={openScoreModal} onSubmitScore={submitInlineScore} onCrownChampion={handleCrownChampion} tournament={tournament} />
               )}
               {tournament?.format === 'group_knockout' && (
                 <div>
@@ -883,7 +956,7 @@ export default function ManageTournamentPage() {
                           Knockout Bracket
                         </span>
                       </div>
-                      <KnockoutBracket fixtures={knockoutFixtures} players={players} onEnterScore={openScoreModal} onCrownChampion={handleCrownChampion} tournament={tournament} />
+                      <KnockoutBracket fixtures={knockoutFixtures} players={players} onEnterScore={openScoreModal} onSubmitScore={submitInlineScore} onCrownChampion={handleCrownChampion} tournament={tournament} />
                     </div>
                   )}
                 </div>

@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState, useEffect } from 'react'
 import { getPlayerTheme } from '../utils/playerIcons'
 
 const LINE_COLOR = '#6366f1'
@@ -79,7 +79,7 @@ function matchupLoserId(m) {
 }
 
 // ── Single-leg match card ──────────────────────────────────────────
-function SingleCard({ fixture: f, playerMap, playerIndex, onEnterScore, big }) {
+function SingleCard({ fixture: f, playerMap, playerIndex, onEnterScore, onSubmitScore, big }) {
   const home = playerMap[f.home_player_id]
   const away = playerMap[f.away_player_id]
   const done = f.status === 'completed'
@@ -88,13 +88,33 @@ function SingleCard({ fixture: f, playerMap, playerIndex, onEnterScore, big }) {
   const hiHome = getPlayerTheme(playerIndex[f.home_player_id] ?? 0)
   const hiAway = getPlayerTheme(playerIndex[f.away_player_id] ?? 1)
 
+  // Inline editing state — only used if onSubmitScore is provided
+  const [hi, setHi] = useState(f.home_score ?? '')
+  const [ai, setAi] = useState(f.away_score ?? '')
+  const [saving, setSaving] = useState(false)
+  useEffect(() => {
+    setHi(f.home_score ?? '')
+    setAi(f.away_score ?? '')
+  }, [f.id, f.home_score, f.away_score])
+
+  const inline = !!onSubmitScore
+  const bothFilled = hi !== '' && ai !== '' && !isNaN(parseInt(hi)) && !isNaN(parseInt(ai))
+  const changed = bothFilled && (parseInt(hi) !== f.home_score || parseInt(ai) !== f.away_score)
+
+  const handleSave = async () => {
+    if (!changed) return
+    setSaving(true)
+    try { await onSubmitScore(f, parseInt(hi), parseInt(ai)) }
+    finally { setSaving(false) }
+  }
+
   return (
     <div className={`rounded-xl border ${big ? 'border-amber-500/60 bg-gradient-to-br from-gray-900 via-amber-950/30 to-gray-900 shadow-2xl shadow-amber-900/30' : 'border-gray-700/80 bg-gray-900/90 shadow-lg'} overflow-hidden relative`}
          style={{ width: big ? CARD_W * 1.5 : CARD_W }}>
       {[
-        { player: home, score: f.home_score, won: homeWon, theme: hiHome },
-        { player: away, score: f.away_score, won: awayWon, theme: hiAway },
-      ].map(({ player, score, won, theme }, i) => (
+        { player: home, score: f.home_score, won: homeWon, theme: hiHome, isHome: true },
+        { player: away, score: f.away_score, won: awayWon, theme: hiAway, isHome: false },
+      ].map(({ player, score, won, theme, isHome }, i) => (
         <div key={i}
           className={`flex items-center justify-between px-2.5 ${big ? 'py-3' : 'py-2'} ${i === 0 ? 'border-b border-gray-700/60' : ''} ${won ? (big ? 'bg-amber-900/30' : 'bg-indigo-950/50') : ''}`}>
           <div className="flex items-center gap-1.5 min-w-0">
@@ -106,18 +126,44 @@ function SingleCard({ fixture: f, playerMap, playerIndex, onEnterScore, big }) {
             </span>
             {big && won && <span className="text-amber-400 text-base ml-1">👑</span>}
           </div>
-          <span className={`${big ? 'text-2xl' : 'text-sm'} font-bold ml-1 tabular-nums shrink-0 ${won ? (big ? 'text-amber-300' : 'text-indigo-400') : 'text-gray-600'}`}>
-            {score ?? '—'}
-          </span>
+          {inline ? (
+            <input
+              type="number"
+              inputMode="numeric"
+              min={0}
+              value={isHome ? hi : ai}
+              onChange={e => isHome ? setHi(e.target.value) : setAi(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter' && changed) handleSave() }}
+              onClick={e => e.stopPropagation()}
+              disabled={saving}
+              placeholder="—"
+              className={`${big ? 'w-14 h-9 text-xl' : 'w-9 h-7 text-sm'} font-bold tabular-nums text-center bg-gray-800/80 border border-gray-700 rounded-md text-white focus:outline-none focus:border-indigo-400 focus:bg-gray-800 placeholder:text-gray-600 ml-1 shrink-0 disabled:opacity-50`}
+            />
+          ) : (
+            <span className={`${big ? 'text-2xl' : 'text-sm'} font-bold ml-1 tabular-nums shrink-0 ${won ? (big ? 'text-amber-300' : 'text-indigo-400') : 'text-gray-600'}`}>
+              {score ?? '—'}
+            </span>
+          )}
         </div>
       ))}
-      {!done && onEnterScore && (
+      {/* Inline save button — only when there's an unsaved change */}
+      {inline && changed && (
+        <button
+          onClick={handleSave}
+          disabled={saving}
+          className="w-full text-[11px] font-bold py-1.5 border-t border-gray-700/60 bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 text-white transition-all disabled:opacity-60"
+        >
+          {saving ? 'Saving…' : (done ? '✓ Update Score' : '✓ Save Score')}
+        </button>
+      )}
+      {/* Legacy modal trigger when inline is off */}
+      {!inline && !done && onEnterScore && (
         <button onClick={() => onEnterScore(f)}
           className="w-full text-[10px] font-semibold text-indigo-400 hover:text-white hover:bg-indigo-600/80 py-1.5 border-t border-gray-700/60 transition-colors">
           + Enter Score
         </button>
       )}
-      {done && onEnterScore && (
+      {!inline && done && onEnterScore && (
         <button onClick={() => onEnterScore(f)}
           className="absolute top-1.5 right-1.5 text-[10px] text-gray-500 hover:text-white hover:bg-indigo-600/80 rounded px-1.5 py-0.5 transition-colors"
           title="Edit score">
@@ -129,7 +175,7 @@ function SingleCard({ fixture: f, playerMap, playerIndex, onEnterScore, big }) {
 }
 
 // ── Two-leg match card ─────────────────────────────────────────────
-function TwoLegCard({ leg1, leg2, playerMap, playerIndex, onEnterScore, big }) {
+function TwoLegCard({ leg1, leg2, playerMap, playerIndex, onEnterScore, onSubmitScore, big }) {
   const agg = getAggregate(leg1, leg2)
   const aId = leg1.home_player_id
   const bId = leg1.away_player_id
@@ -139,15 +185,64 @@ function TwoLegCard({ leg1, leg2, playerMap, playerIndex, onEnterScore, big }) {
   const themeB = getPlayerTheme(playerIndex[bId] ?? 1)
   const aWon = agg && agg.aGoals > agg.bGoals
   const bWon = agg && agg.bGoals > agg.aGoals
+  const inline = !!onSubmitScore
+
+  // Inline leg state — A's L1 score = leg1.home_score, B's L1 = leg1.away_score, etc.
+  const [aL1, setAL1] = useState(leg1.home_score ?? '')
+  const [bL1, setBL1] = useState(leg1.away_score ?? '')
+  const [aL2, setAL2] = useState(leg2?.away_score ?? '')
+  const [bL2, setBL2] = useState(leg2?.home_score ?? '')
+  const [savingLeg, setSavingLeg] = useState(null) // 1 | 2 | null
+  useEffect(() => {
+    setAL1(leg1.home_score ?? ''); setBL1(leg1.away_score ?? '')
+    setAL2(leg2?.away_score ?? ''); setBL2(leg2?.home_score ?? '')
+  }, [leg1.id, leg1.home_score, leg1.away_score, leg2?.id, leg2?.home_score, leg2?.away_score])
+
+  const l1Both = aL1 !== '' && bL1 !== ''
+  const l2Both = aL2 !== '' && bL2 !== ''
+  const l1Changed = l1Both && (parseInt(aL1) !== leg1.home_score || parseInt(bL1) !== leg1.away_score)
+  const l2Changed = leg2 && l2Both && (parseInt(bL2) !== leg2.home_score || parseInt(aL2) !== leg2.away_score)
+
+  const saveLeg = async (legNum) => {
+    setSavingLeg(legNum)
+    try {
+      if (legNum === 1) await onSubmitScore(leg1, parseInt(aL1), parseInt(bL1))
+      else if (leg2) await onSubmitScore(leg2, parseInt(bL2), parseInt(aL2))
+    } finally { setSavingLeg(null) }
+  }
+
+  const ScoreCell = ({ val, setVal, leg, theirsWinning }) => {
+    if (inline) {
+      return (
+        <input
+          type="number"
+          inputMode="numeric"
+          min={0}
+          value={val}
+          onChange={e => setVal(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') saveLeg(leg) }}
+          onClick={e => e.stopPropagation()}
+          disabled={savingLeg !== null}
+          placeholder="—"
+          className={`${big ? 'w-9 h-7 text-sm' : 'w-7 h-5 text-xs'} font-bold tabular-nums text-center bg-gray-800/80 border border-gray-700 rounded text-white focus:outline-none focus:border-indigo-400 placeholder:text-gray-600 disabled:opacity-50`}
+        />
+      )
+    }
+    return (
+      <span className={`text-xs font-bold tabular-nums w-4 text-center ${theirsWinning ? 'text-white' : 'text-gray-500'}`}>
+        {val === '' ? '—' : val}
+      </span>
+    )
+  }
 
   return (
     <div className={`rounded-xl border ${big ? 'border-amber-500/60 bg-gradient-to-br from-gray-900 via-amber-950/30 to-gray-900 shadow-2xl shadow-amber-900/30' : 'border-gray-700/80 bg-gray-900/90 shadow-lg'} overflow-hidden relative`}
-         style={{ width: big ? CARD_W * 1.6 : CARD_W }}>
-      {/* Header row: player names */}
+         style={{ width: big ? CARD_W * 1.7 : CARD_W }}>
+      {/* Player rows with inline leg scores */}
       {[
-        { player: playerA, theme: themeA, won: aWon, isA: true },
-        { player: playerB, theme: themeB, won: bWon, isA: false },
-      ].map(({ player, theme, won, isA }, i) => (
+        { player: playerA, theme: themeA, won: aWon, l1Val: aL1, setL1: setAL1, l2Val: aL2, setL2: setAL2, l1Win: leg1.home_score>leg1.away_score, l2Win: leg2 && leg2.away_score>leg2.home_score },
+        { player: playerB, theme: themeB, won: bWon, l1Val: bL1, setL1: setBL1, l2Val: bL2, setL2: setBL2, l1Win: leg1.away_score>leg1.home_score, l2Win: leg2 && leg2.home_score>leg2.away_score },
+      ].map(({ player, theme, won, l1Val, setL1, l2Val, setL2, l1Win, l2Win }, i) => (
         <div key={i}
           className={`flex items-center justify-between px-2.5 ${big ? 'py-2' : 'py-1.5'} ${i === 0 ? 'border-b border-gray-700/40' : ''} ${won ? (big ? 'bg-amber-900/30' : 'bg-indigo-950/50') : ''}`}>
           <div className="flex items-center gap-1.5 min-w-0">
@@ -159,18 +254,13 @@ function TwoLegCard({ leg1, leg2, playerMap, playerIndex, onEnterScore, big }) {
             </span>
             {big && won && <span className="text-amber-400 ml-0.5">👑</span>}
           </div>
-          {/* Leg scores */}
           <div className="flex items-center gap-1.5 shrink-0 ml-1">
             <span className="text-[10px] text-gray-500">L1</span>
-            <span className={`text-xs font-bold tabular-nums w-4 text-center ${isA?(leg1.home_score>leg1.away_score?'text-white':'text-gray-500'):(leg1.away_score>leg1.home_score?'text-white':'text-gray-500')}`}>
-              {isA ? (leg1.home_score ?? '—') : (leg1.away_score ?? '—')}
-            </span>
+            <ScoreCell val={l1Val} setVal={setL1} leg={1} theirsWinning={l1Win} />
             {leg2 && <>
               <span className="text-[10px] text-gray-600">·</span>
               <span className="text-[10px] text-gray-500">L2</span>
-              <span className={`text-xs font-bold tabular-nums w-4 text-center ${isA?(leg2.away_score>leg2.home_score?'text-white':'text-gray-500'):(leg2.home_score>leg2.away_score?'text-white':'text-gray-500')}`}>
-                {isA ? (leg2.away_score ?? '—') : (leg2.home_score ?? '—')}
-              </span>
+              <ScoreCell val={l2Val} setVal={setL2} leg={2} theirsWinning={l2Win} />
             </>}
           </div>
         </div>
@@ -183,8 +273,31 @@ function TwoLegCard({ leg1, leg2, playerMap, playerIndex, onEnterScore, big }) {
           <span className={`${big ? 'text-base' : 'text-xs'} font-bold tabular-nums ${bWon ? (big ? 'text-amber-300' : 'text-indigo-400') : 'text-gray-400'}`}>{agg.bGoals}</span>
         </div>
       )}
-      {/* Enter / Edit score buttons */}
-      {onEnterScore && (
+      {/* Inline save buttons for changed legs */}
+      {inline && (l1Changed || l2Changed) && (
+        <div className="flex border-t border-gray-700/60">
+          {l1Changed && (
+            <button
+              onClick={() => saveLeg(1)}
+              disabled={savingLeg !== null}
+              className="flex-1 text-[10px] font-bold py-1.5 bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 text-white transition-all disabled:opacity-60"
+            >
+              {savingLeg === 1 ? 'Saving…' : '✓ Save L1'}
+            </button>
+          )}
+          {l2Changed && (
+            <button
+              onClick={() => saveLeg(2)}
+              disabled={savingLeg !== null}
+              className={`flex-1 text-[10px] font-bold py-1.5 bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 text-white transition-all disabled:opacity-60 ${l1Changed ? 'border-l border-gray-700/60' : ''}`}
+            >
+              {savingLeg === 2 ? 'Saving…' : '✓ Save L2'}
+            </button>
+          )}
+        </div>
+      )}
+      {/* Legacy modal trigger when inline is off */}
+      {!inline && onEnterScore && (
         <div className="flex border-t border-gray-700/60">
           <button onClick={() => onEnterScore(leg1)}
             className={`flex-1 text-[10px] font-semibold py-1.5 transition-colors ${leg1.status === 'completed' ? 'text-gray-500 hover:text-white hover:bg-indigo-600/60' : 'text-indigo-400 hover:text-white hover:bg-indigo-600/80'}`}>
@@ -211,7 +324,7 @@ function MatchCard({ matchup: m, ...rest }) {
 }
 
 // ── Championship Finale (SF + Final + Trophy) ──────────────────────
-function ChampionshipFinale({ sfMatchups, finalMatchup, playerMap, playerIndex, onEnterScore, onCrownChampion, tournament }) {
+function ChampionshipFinale({ sfMatchups, finalMatchup, playerMap, playerIndex, onEnterScore, onSubmitScore, onCrownChampion, tournament }) {
   const sf1 = sfMatchups[0]
   const sf2 = sfMatchups[1]
   const championId = matchupWinnerId(finalMatchup)
@@ -242,13 +355,13 @@ function ChampionshipFinale({ sfMatchups, finalMatchup, playerMap, playerIndex, 
               {sf1 && (
                 <div className="flex flex-col items-center">
                   <span className="text-[10px] text-gray-500 mb-1">SF 1</span>
-                  <MatchCard matchup={sf1} playerMap={playerMap} playerIndex={playerIndex} onEnterScore={onEnterScore} />
+                  <MatchCard matchup={sf1} playerMap={playerMap} playerIndex={playerIndex} onEnterScore={onEnterScore} onSubmitScore={onSubmitScore} />
                 </div>
               )}
               {sf2 && (
                 <div className="flex flex-col items-center">
                   <span className="text-[10px] text-gray-500 mb-1">SF 2</span>
-                  <MatchCard matchup={sf2} playerMap={playerMap} playerIndex={playerIndex} onEnterScore={onEnterScore} />
+                  <MatchCard matchup={sf2} playerMap={playerMap} playerIndex={playerIndex} onEnterScore={onEnterScore} onSubmitScore={onSubmitScore} />
                 </div>
               )}
             </div>
@@ -270,7 +383,7 @@ function ChampionshipFinale({ sfMatchups, finalMatchup, playerMap, playerIndex, 
         {finalMatchup && (
           <div className="flex flex-col items-center">
             <p className="text-center text-[11px] font-bold uppercase tracking-[0.3em] text-amber-300 mb-3">⚔️ Grand Final ⚔️</p>
-            <MatchCard matchup={finalMatchup} playerMap={playerMap} playerIndex={playerIndex} onEnterScore={onEnterScore} big />
+            <MatchCard matchup={finalMatchup} playerMap={playerMap} playerIndex={playerIndex} onEnterScore={onEnterScore} onSubmitScore={onSubmitScore} big />
           </div>
         )}
 
@@ -311,7 +424,7 @@ function ChampionshipFinale({ sfMatchups, finalMatchup, playerMap, playerIndex, 
 }
 
 // ── Main bracket component ─────────────────────────────────────────
-export default function KnockoutBracket({ fixtures, players, onEnterScore, onCrownChampion, tournament }) {
+export default function KnockoutBracket({ fixtures, players, onEnterScore, onSubmitScore, onCrownChampion, tournament }) {
   const playerMap = Object.fromEntries((players ?? []).map(p => [p.id, p]))
   const playerIndex = Object.fromEntries((players ?? []).map((p, i) => [p.id, i]))
 
@@ -374,7 +487,7 @@ export default function KnockoutBracket({ fixtures, players, onEnterScore, onCro
                     {roundMatchups.map((m) => (
                       <div key={m.type === 'single' ? m.f.id : m.leg1.id}
                            style={{ height: sh, display: 'flex', alignItems: 'center' }}>
-                        <MatchCard matchup={m} playerMap={playerMap} playerIndex={playerIndex} onEnterScore={onEnterScore} />
+                        <MatchCard matchup={m} playerMap={playerMap} playerIndex={playerIndex} onEnterScore={onEnterScore} onSubmitScore={onSubmitScore} />
                       </div>
                     ))}
                   </div>
@@ -433,6 +546,7 @@ export default function KnockoutBracket({ fixtures, players, onEnterScore, onCro
           playerMap={playerMap}
           playerIndex={playerIndex}
           onEnterScore={onEnterScore}
+          onSubmitScore={onSubmitScore}
           onCrownChampion={onCrownChampion}
           tournament={tournament}
         />

@@ -147,7 +147,7 @@ export default function PublicTournamentPage() {
             <SectionHeader icon="🥊" title="Bracket" />
             <div className="-mx-4 px-4 overflow-x-auto">
               <div className="min-w-[500px]">
-                <KnockoutBracket fixtures={regularFixtures.length ? regularFixtures : fixtures} players={players} />
+                <KnockoutBracket fixtures={regularFixtures.length ? regularFixtures : fixtures} players={players} tournament={tournament} />
               </div>
             </div>
           </section>
@@ -171,7 +171,7 @@ export default function PublicTournamentPage() {
                 <SectionHeader icon="🥊" title="Knockout Bracket" />
                 <div className="-mx-4 px-4 overflow-x-auto">
                   <div className="min-w-[400px]">
-                    <KnockoutBracket fixtures={knockoutFixtures} players={players} />
+                    <KnockoutBracket fixtures={knockoutFixtures} players={players} tournament={tournament} />
                   </div>
                 </div>
               </section>

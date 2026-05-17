@@ -4,6 +4,7 @@ import { supabase } from '../supabaseClient'
 import { useTournament } from '../hooks/useTournament'
 import LeagueTable from '../components/LeagueTable'
 import KnockoutBracket from '../components/KnockoutBracket'
+import ChampionPoster from '../components/ChampionPoster'
 import GroupStandings from '../components/GroupStandings'
 import PlayerAvatar from '../components/PlayerAvatar'
 import ShareableFixtureCard from '../components/ShareableFixtureCard'
@@ -32,6 +33,7 @@ export default function ManageTournamentPage() {
   const [scoreModal, setScoreModal] = useState(null)
   const [scores, setScores] = useState({ home: '', away: '' })
   const [showFixtureCard, setShowFixtureCard] = useState(false)
+  const [championPosterData, setChampionPosterData] = useState(null) // { champion, runnerUp, finalScore }
   const [draggingId, setDraggingId]     = useState(null)
   const [dragOverGroup, setDragOverGroup] = useState(null)
   const [manualMode, setManualMode]     = useState(false)
@@ -81,6 +83,39 @@ export default function ManageTournamentPage() {
     const { error } = await supabase.from('players').update({ name: next }).eq('id', player.id)
     if (error) return setActionError(error.message)
     refetch()
+  }
+
+  // Build the final score string for the champion poster from the final fixture(s)
+  const buildFinalScore = () => {
+    const knockoutFx = fixtures.filter(f => (f.phase ?? 'regular') === 'knockout' || tournament?.format === 'knockout')
+    if (!knockoutFx.length) return null
+    const maxRound = knockoutFx.reduce((m, f) => Math.max(m, f.round ?? 1), 0)
+    const finalFx = knockoutFx.filter(f => f.round === maxRound)
+    if (!finalFx.length) return null
+
+    // Two-leg final?
+    if (finalFx.length === 2 && finalFx[0].pair_id && finalFx[0].pair_id === finalFx[1].pair_id) {
+      const leg1 = finalFx.find(l => l.leg === 1) ?? finalFx[0]
+      const leg2 = finalFx.find(l => l.leg === 2) ?? finalFx[1]
+      if (leg1.status === 'completed' && leg2.status === 'completed') {
+        const aGoals = (leg1.home_score ?? 0) + (leg2.away_score ?? 0)
+        const bGoals = (leg1.away_score ?? 0) + (leg2.home_score ?? 0)
+        return `${Math.max(aGoals, bGoals)} – ${Math.min(aGoals, bGoals)} (agg.)`
+      }
+      return null
+    }
+    // Single-leg final
+    const f = finalFx[0]
+    if (f.status !== 'completed') return null
+    return `${Math.max(f.home_score, f.away_score)} – ${Math.min(f.home_score, f.away_score)}`
+  }
+
+  const handleCrownChampion = (champion, runnerUp) => {
+    setChampionPosterData({
+      champion,
+      runnerUp,
+      finalScore: buildFinalScore(),
+    })
   }
 
   const assignPlayerGroup = async (playerId, groupNum) => {
@@ -709,13 +744,13 @@ export default function ManageTournamentPage() {
                           Knockout Stage
                         </span>
                       </div>
-                      <KnockoutBracket fixtures={knockoutFixtures} players={players} onEnterScore={openScoreModal} />
+                      <KnockoutBracket fixtures={knockoutFixtures} players={players} onEnterScore={openScoreModal} onCrownChampion={handleCrownChampion} tournament={tournament} />
                     </div>
                   )}
                 </>
 
               ) : tournament?.format === 'knockout' ? (
-                <KnockoutBracket fixtures={fixtures} players={players} onEnterScore={openScoreModal} />
+                <KnockoutBracket fixtures={fixtures} players={players} onEnterScore={openScoreModal} onCrownChampion={handleCrownChampion} tournament={tournament} />
 
               ) : (
                 /* League */
@@ -807,7 +842,7 @@ export default function ManageTournamentPage() {
                 <LeagueTable standings={standings} players={players} />
               )}
               {tournament?.format === 'knockout' && (
-                <KnockoutBracket fixtures={fixtures} players={players} onEnterScore={openScoreModal} />
+                <KnockoutBracket fixtures={fixtures} players={players} onEnterScore={openScoreModal} onCrownChampion={handleCrownChampion} tournament={tournament} />
               )}
               {tournament?.format === 'group_knockout' && (
                 <div>
@@ -827,7 +862,7 @@ export default function ManageTournamentPage() {
                           Knockout Bracket
                         </span>
                       </div>
-                      <KnockoutBracket fixtures={knockoutFixtures} players={players} onEnterScore={openScoreModal} />
+                      <KnockoutBracket fixtures={knockoutFixtures} players={players} onEnterScore={openScoreModal} onCrownChampion={handleCrownChampion} tournament={tournament} />
                     </div>
                   )}
                 </div>
@@ -854,6 +889,17 @@ export default function ManageTournamentPage() {
           fixtures={fixtures}
           players={players}
           onClose={() => setShowFixtureCard(false)}
+        />
+      )}
+
+      {/* ── Champion Poster Modal ── */}
+      {championPosterData && (
+        <ChampionPoster
+          tournament={tournament}
+          champion={championPosterData.champion}
+          runnerUp={championPosterData.runnerUp}
+          finalScore={championPosterData.finalScore}
+          onClose={() => setChampionPosterData(null)}
         />
       )}
 

@@ -255,8 +255,9 @@ export default function ManageTournamentPage() {
     return (f.phase ?? 'regular') === 'knockout'
   }
 
-  // After a knockout score change, find any downstream fixtures that referenced
-  // the OLD winner and offer to swap them to the NEW winner.
+  // After a knockout score change, find ALL downstream fixtures that referenced
+  // the OLD winner (QF → SF, SF → Final, even QF → Final if the player got
+  // there) and offer to swap them to the NEW winner.
   const maybePropagateWinnerChange = async (fixture, oldWinnerId, newWinnerId) => {
     if (!oldWinnerId || !newWinnerId || oldWinnerId === newWinnerId) return
     if (!isKnockoutFixture(fixture)) return
@@ -271,21 +272,33 @@ export default function ManageTournamentPage() {
 
     const oldName = players.find(p => p.id === oldWinnerId)?.name ?? 'previous winner'
     const newName = players.find(p => p.id === newWinnerId)?.name ?? 'new winner'
-    const opponentName = players.find(p => {
-      const d = downstream[0]
-      const oppId = d.home_player_id === oldWinnerId ? d.away_player_id : d.home_player_id
-      return p.id === oppId
-    })?.name ?? 'opponent'
+
+    // Build a friendly round-by-round summary of what will change
+    const knockoutFx = fixtures.filter(isKnockoutFixture)
+    const maxRound   = knockoutFx.reduce((m, x) => Math.max(m, x.round ?? 1), 0)
+    const roundLabelFor = (r) => {
+      const fromEnd = maxRound - r
+      if (fromEnd === 0) return 'Final'
+      if (fromEnd === 1) return 'Semi-Final'
+      if (fromEnd === 2) return 'Quarter-Final'
+      if (fromEnd === 3) return 'Round of 16'
+      return `Round ${r}`
+    }
+    // Unique rounds touched, in order
+    const roundsTouched = [...new Set(downstream.map(d => d.round ?? 1))].sort((a, b) => a - b)
+    const roundsList = roundsTouched.map(roundLabelFor).join(', ')
 
     const proceed = confirm(
-      `🔄 The winner of this match changed from "${oldName}" to "${newName}".\n\n` +
-      `Update the next round so "${newName}" plays "${opponentName}"?\n\n` +
-      `OK   = update opponent name in the next round\n` +
-      `Cancel = keep the bracket as-is (the next round still shows "${oldName}")`
+      `🔄 Winner changed: "${oldName}" → "${newName}"\n\n` +
+      `This player has already advanced to: ${roundsList}.\n\n` +
+      `Update those fixtures so "${newName}" takes the spot?\n\n` +
+      `OK     → update opponent name in ${roundsList}\n` +
+      `Cancel → keep the bracket as-is`
     )
     if (!proceed) return
 
     // Swap player IDs on every downstream fixture that referenced the old winner.
+    // Includes two-leg pairs (both legs share pair_id so both get patched).
     for (const f of downstream) {
       const patch = f.home_player_id === oldWinnerId
         ? { home_player_id: newWinnerId }

@@ -110,11 +110,32 @@ export default function ManageTournamentPage() {
     return `${Math.max(f.home_score, f.away_score)} – ${Math.min(f.home_score, f.away_score)}`
   }
 
+  // Compute a player's stats across the entire tournament
+  const buildPlayerStats = (playerId) => {
+    if (!playerId) return null
+    let gf = 0, ga = 0, matches = 0
+    fixtures.forEach(f => {
+      if (f.status !== 'completed') return
+      if (f.home_player_id === playerId) {
+        gf += f.home_score ?? 0
+        ga += f.away_score ?? 0
+        matches += 1
+      } else if (f.away_player_id === playerId) {
+        gf += f.away_score ?? 0
+        ga += f.home_score ?? 0
+        matches += 1
+      }
+    })
+    return { gf, ga, gd: gf - ga, matches }
+  }
+
   const handleCrownChampion = (champion, runnerUp) => {
     setChampionPosterData({
       champion,
       runnerUp,
       finalScore: buildFinalScore(),
+      championStats: buildPlayerStats(champion?.id),
+      runnerUpStats: buildPlayerStats(runnerUp?.id),
     })
   }
 
@@ -899,6 +920,8 @@ export default function ManageTournamentPage() {
           champion={championPosterData.champion}
           runnerUp={championPosterData.runnerUp}
           finalScore={championPosterData.finalScore}
+          championStats={championPosterData.championStats}
+          runnerUpStats={championPosterData.runnerUpStats}
           onClose={() => setChampionPosterData(null)}
         />
       )}

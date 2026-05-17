@@ -13,7 +13,9 @@ export default function ChampionPoster({
   tournament,
   champion,
   runnerUp,
-  finalScore,    // optional: "3 – 1" for single-leg, or "5 – 3 agg." for two-leg
+  finalScore,      // optional: "3 – 1" single-leg, or "5 – 3 (agg.)" two-leg
+  championStats,   // { gf, ga, gd, matches } across the whole tournament
+  runnerUpStats,   // same shape, optional
   onClose,
 }) {
   const storageKey = `champion-photo:${tournament?.id}`
@@ -155,18 +157,51 @@ export default function ChampionPoster({
             </p>
           </div>
 
-          {/* Score + runner-up */}
+          {/* Score + tournament-wide stats + runner-up */}
           <div className="px-6 pb-6 mt-2 space-y-2">
             {finalScore && (
               <div className="bg-black/30 border border-amber-700/30 rounded-xl px-4 py-2 text-center">
                 <p className="text-[10px] uppercase tracking-[0.3em] text-amber-400/70">Final Score</p>
-                <p className="text-lg font-black text-white tabular-nums mt-0.5">{finalScore}</p>
+                <p className="text-lg font-black text-white tabular-nums mt-0.5">
+                  {finalScore}
+                  {championStats && (
+                    <span className={`ml-2 text-xs font-bold tabular-nums ${championStats.gd > 0 ? 'text-emerald-400' : championStats.gd < 0 ? 'text-red-400' : 'text-gray-400'}`}>
+                      ({championStats.gd >= 0 ? '+' : ''}{championStats.gd} GD)
+                    </span>
+                  )}
+                </p>
               </div>
             )}
+
+            {/* Tournament-wide champion stats */}
+            {championStats && championStats.matches > 0 && (
+              <div className="grid grid-cols-3 gap-2">
+                <div className="bg-black/30 border border-amber-700/30 rounded-xl px-2 py-2 text-center">
+                  <p className="text-[9px] uppercase tracking-[0.18em] text-amber-400/70">Matches</p>
+                  <p className="text-base font-black text-white tabular-nums mt-0.5">{championStats.matches}</p>
+                </div>
+                <div className="bg-black/30 border border-amber-700/30 rounded-xl px-2 py-2 text-center">
+                  <p className="text-[9px] uppercase tracking-[0.18em] text-amber-400/70">Goals</p>
+                  <p className="text-base font-black text-emerald-300 tabular-nums mt-0.5">{championStats.gf}</p>
+                </div>
+                <div className="bg-black/30 border border-amber-700/30 rounded-xl px-2 py-2 text-center">
+                  <p className="text-[9px] uppercase tracking-[0.18em] text-amber-400/70">Conceded</p>
+                  <p className="text-base font-black text-red-300 tabular-nums mt-0.5">{championStats.ga}</p>
+                </div>
+              </div>
+            )}
+
             {runnerUp && (
               <div className="bg-gray-900/50 border border-gray-700/40 rounded-xl px-4 py-2 text-center">
                 <p className="text-[10px] uppercase tracking-[0.3em] text-gray-500">Runner-Up</p>
-                <p className="text-sm font-bold text-gray-200 mt-0.5">{runnerUp.name}</p>
+                <p className="text-sm font-bold text-gray-200 mt-0.5">
+                  {runnerUp.name}
+                  {runnerUpStats && runnerUpStats.matches > 0 && (
+                    <span className="ml-2 text-[10px] text-gray-400 font-medium">
+                      · {runnerUpStats.matches} MP · {runnerUpStats.gf} G · {runnerUpStats.ga} GA
+                    </span>
+                  )}
+                </p>
               </div>
             )}
           </div>

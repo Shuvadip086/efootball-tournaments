@@ -6,7 +6,12 @@ import KnockoutBracket from '../components/KnockoutBracket'
 import GroupStandings from '../components/GroupStandings'
 import PlayerAvatar from '../components/PlayerAvatar'
 import TopScorers from '../components/TopScorers'
+import { ChampionPosterCard } from '../components/ChampionPoster'
+import RunnerUpPoster from '../components/RunnerUpPoster'
+import TopScorersPoster from '../components/TopScorersPoster'
+import TournamentStats from '../components/TournamentStats'
 import { computeStandings } from '../utils/computeStandings'
+import { computeTournamentStats } from '../utils/tournamentStats'
 import { exportTournamentToExcel } from '../utils/exportTournament'
 
 const FORMAT_ICON  = { league: '📊', knockout: '🥊', group_knockout: '🏆' }
@@ -31,6 +36,72 @@ export default function PublicTournamentPage() {
   const completedFixtures  = fixtures.filter(f => f.status === 'completed')
   const pendingFixtures    = fixtures.filter(f => f.status === 'pending')
   const playerMap          = Object.fromEntries(players.map(p => [p.id, p]))
+
+  // ── Tournament-end celebration data ─────────────────────────────
+  const isCompleted = tournament?.status === 'completed'
+  const celebration = useMemo(() => {
+    if (!tournament || !isCompleted) return null
+    const stats = computeTournamentStats(fixtures, players, tournament)
+
+    // Find Final fixture(s) — last knockout round with 1 or 2 (two-leg) entries
+    const koFx = tournament.format === 'knockout'
+      ? fixtures
+      : fixtures.filter(f => f.phase === 'knockout')
+    let champion = null, runnerUp = null, finalScore = null
+    if (koFx.length) {
+      const maxRound = Math.max(...koFx.map(f => f.round ?? 1))
+      const finalFx  = koFx.filter(f => f.round === maxRound)
+      if (finalFx.length === 2 && finalFx[0].pair_id && finalFx[0].pair_id === finalFx[1].pair_id) {
+        // Two-leg final
+        const l1 = finalFx.find(l => l.leg === 1) ?? finalFx[0]
+        const l2 = finalFx.find(l => l.leg === 2) ?? finalFx[1]
+        if (l1.status === 'completed' && l2.status === 'completed') {
+          const aGoals = (l1.home_score ?? 0) + (l2.away_score ?? 0)
+          const bGoals = (l1.away_score ?? 0) + (l2.home_score ?? 0)
+          const aId = l1.home_player_id, bId = l1.away_player_id
+          if (aGoals > bGoals) { champion = playerMap[aId]; runnerUp = playerMap[bId] }
+          else if (bGoals > aGoals) { champion = playerMap[bId]; runnerUp = playerMap[aId] }
+          finalScore = `${Math.max(aGoals, bGoals)} – ${Math.min(aGoals, bGoals)} (agg.)`
+        }
+      } else if (finalFx.length === 1) {
+        const f = finalFx[0]
+        if (f.status === 'completed') {
+          if (f.home_score > f.away_score) { champion = playerMap[f.home_player_id]; runnerUp = playerMap[f.away_player_id] }
+          else if (f.away_score > f.home_score) { champion = playerMap[f.away_player_id]; runnerUp = playerMap[f.home_player_id] }
+          finalScore = `${Math.max(f.home_score, f.away_score)} – ${Math.min(f.home_score, f.away_score)}`
+        }
+      }
+    }
+    // For league-only formats: top of standings is champion, 2nd is runner-up
+    if (!champion && tournament.format === 'league' && standings.length >= 2) {
+      champion = playerMap[standings[0].player_id]
+      runnerUp = playerMap[standings[1].player_id]
+    }
+
+    const championStats = champion ? stats.topScorers.concat(stats.bestAttack, stats.bestDefence).find(s => s?.id === champion.id) || null : null
+    const runnerUpStats = runnerUp ? stats.topScorers.concat(stats.bestAttack, stats.bestDefence).find(s => s?.id === runnerUp.id) || null : null
+
+    // If the champion/runner-up didn't show up in those derived lists,
+    // compute from scratch.
+    const rebuild = (id) => {
+      if (!id) return null
+      let matches = 0, gf = 0, ga = 0
+      fixtures.forEach(f => {
+        if (f.status !== 'completed') return
+        if (f.home_player_id === id) { matches++; gf += f.home_score ?? 0; ga += f.away_score ?? 0 }
+        else if (f.away_player_id === id) { matches++; gf += f.away_score ?? 0; ga += f.home_score ?? 0 }
+      })
+      return { id, matches, gf, ga, gd: gf - ga, avgGF: matches ? gf / matches : 0, avgGA: matches ? ga / matches : 0 }
+    }
+    return {
+      champion,
+      runnerUp,
+      finalScore,
+      championStats: championStats ?? rebuild(champion?.id),
+      runnerUpStats: runnerUpStats ?? rebuild(runnerUp?.id),
+      stats,
+    }
+  }, [tournament, isCompleted, fixtures, players, playerMap, standings])
 
   if (loading) return (
     <div className="min-h-screen bg-gray-950 flex items-center justify-center">
@@ -133,6 +204,73 @@ export default function PublicTournamentPage() {
       </div>
 
       <main className="max-w-5xl mx-auto px-4 py-8 space-y-10">
+
+        {/* ═══════════════════════════════════════════════════════════
+            CELEBRATION LAYERS — only when tournament.status='completed'
+            Layer 1: 🏆 Champion Poster
+            Layer 2: 🥈 Runner-Up Poster
+            Layer 3: ⚽ Top 3 Scorers Poster
+            Layer 4: 📊 Season Statistics (CL-style)
+            ═══════════════════════════════════════════════════════════ */}
+        {isCompleted && celebration && (
+          <div className="space-y-12">
+            {/* Layer 1 — Champion */}
+            {celebration.champion && (
+              <section>
+                <SectionHeader icon="🏆" title="Champion" subtitle="The Winner Takes It All" />
+                <ChampionPosterCard
+                  tournament={tournament}
+                  champion={celebration.champion}
+                  runnerUp={celebration.runnerUp}
+                  finalScore={celebration.finalScore}
+                  championStats={celebration.championStats}
+                  runnerUpStats={celebration.runnerUpStats}
+                  allowUpload
+                />
+              </section>
+            )}
+
+            {/* Layer 2 — Runner-Up */}
+            {celebration.runnerUp && (
+              <section>
+                <SectionHeader icon="🥈" title="Runner-Up" subtitle="So Close to Glory" />
+                <RunnerUpPoster
+                  tournament={tournament}
+                  runnerUp={celebration.runnerUp}
+                  runnerUpStats={celebration.runnerUpStats}
+                  allowUpload
+                />
+              </section>
+            )}
+
+            {/* Layer 3 — Top 3 Scorers */}
+            {celebration.stats.topScorers && celebration.stats.topScorers.length > 0 && (
+              <section>
+                <SectionHeader icon="⚽" title="Golden Boot" subtitle="The Goal Machines" />
+                <TopScorersPoster
+                  tournament={tournament}
+                  topScorers={celebration.stats.topScorers}
+                  allowUpload
+                />
+              </section>
+            )}
+
+            {/* Layer 4 — Tournament Statistics (CL-style) */}
+            <section>
+              <SectionHeader icon="📊" title="Season Statistics" subtitle="The Tournament in Numbers" />
+              <TournamentStats
+                tournament={tournament}
+                fixtures={fixtures}
+                players={players}
+                stats={celebration.stats}
+              />
+            </section>
+
+            <div className="text-center text-[10px] uppercase tracking-[0.4em] text-gray-600 pt-4 pb-2">
+              ━━ End of Tournament ━━
+            </div>
+          </div>
+        )}
 
         {/* ── Standings / Bracket ── */}
         {tournament.format === 'league' && standings.length > 0 && (
@@ -558,14 +696,19 @@ function PublicFixtureRow({ fixture: f, players, playerMap, compact }) {
 }
 
 // ── Section header ────────────────────────────────────────────────
-function SectionHeader({ icon, title }) {
+function SectionHeader({ icon, title, subtitle }) {
   return (
     <div className="flex items-center gap-3 mb-5">
       <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-600 to-emerald-700 flex items-center justify-center text-lg shadow-lg shadow-indigo-950/50 ring-1 ring-indigo-500/30">
         {icon}
       </div>
-      <h2 className="text-xl font-black text-white tracking-tight uppercase">{title}</h2>
-      <div className="flex-1 h-[2px] bg-gradient-to-r from-indigo-700/50 via-indigo-700/20 to-transparent ml-2 rounded-full" />
+      <div className="flex-1 min-w-0">
+        <h2 className="text-xl font-black text-white tracking-tight uppercase leading-tight">{title}</h2>
+        {subtitle && (
+          <p className="text-[10px] uppercase tracking-[0.3em] text-gray-500 mt-0.5">{subtitle}</p>
+        )}
+      </div>
+      <div className="flex-1 h-[2px] bg-gradient-to-r from-indigo-700/50 via-indigo-700/20 to-transparent ml-2 rounded-full hidden sm:block" />
     </div>
   )
 }

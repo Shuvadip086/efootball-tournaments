@@ -54,6 +54,16 @@ export default function ManageTournamentPage() {
   const pendingKnockout   = knockoutFixtures.filter(f => f.status === 'pending')
   const knockoutRoundComplete = pendingKnockout.length === 0 && knockoutFixtures.length > 0
 
+  // ── Final detection: the Final is the highest knockout round with exactly 1 match
+  const allKnockoutRounds = knockoutFixtures.length
+    ? [...new Set(knockoutFixtures.map(f => f.round))].sort((a, b) => a - b)
+    : []
+  const finalRound      = allKnockoutRounds[allKnockoutRounds.length - 1]
+  const finalRoundFx    = finalRound != null ? knockoutFixtures.filter(f => f.round === finalRound) : []
+  const isFinalRound    = finalRoundFx.length > 0 && finalRoundFx.length <= 2 &&
+                          (finalRoundFx.length === 1 || (finalRoundFx[0].pair_id && finalRoundFx.every(f => f.pair_id === finalRoundFx[0].pair_id)))
+  const finalCompleted  = isFinalRound && finalRoundFx.every(f => f.status === 'completed')
+
   // Current-round pending count for badge
   const badgeCount = tournament?.format === 'group_knockout'
     ? (inKnockoutPhase ? pendingKnockout.length : groupFixtures.filter(f => f.status === 'pending').length)
@@ -229,6 +239,40 @@ export default function ManageTournamentPage() {
       p_tournament_id:   id,
       p_teams_advancing: tournament.teams_advancing ?? 2,
     })
+    if (err) setActionError(err.message)
+    setActionLoading(false)
+    refetch()
+  }
+
+  // Mark the tournament as completed. After this the public live page
+  // shows the Champion / Runner-up / Top Scorers posters + season stats.
+  const endTournament = async () => {
+    if (!confirm(
+      '🏆 End the tournament now?\n\n' +
+      'This locks the bracket as completed and reveals the season-end ' +
+      'posters and statistics on the live page.\n\n' +
+      'You can still edit individual fixture scores afterwards.'
+    )) return
+    setActionLoading(true)
+    setActionError('')
+    const { error: err } = await supabase
+      .from('tournaments')
+      .update({ status: 'completed' })
+      .eq('id', id)
+    if (err) setActionError(err.message)
+    setActionLoading(false)
+    refetch()
+  }
+
+  // Re-open a completed tournament (in case the user ended it by mistake)
+  const reopenTournament = async () => {
+    if (!confirm('Re-open the tournament back to active state?')) return
+    setActionLoading(true)
+    setActionError('')
+    const { error: err } = await supabase
+      .from('tournaments')
+      .update({ status: 'active' })
+      .eq('id', id)
     if (err) setActionError(err.message)
     setActionLoading(false)
     refetch()
@@ -667,9 +711,9 @@ export default function ManageTournamentPage() {
           </div>
         )}
 
-        {/* Advance knockout round */}
+        {/* Advance knockout round (hidden when current round IS the final) */}
         {(tournament?.format === 'knockout' || inKnockoutPhase) &&
-          tournament?.status === 'active' && knockoutRoundComplete && (
+          tournament?.status === 'active' && knockoutRoundComplete && !isFinalRound && (
           <div className="mt-4 p-4 bg-green-950/40 border border-green-800 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
             <p className="text-sm font-medium text-green-200">All matches complete — advance to next round?</p>
             <button
@@ -678,6 +722,43 @@ export default function ManageTournamentPage() {
               className="shrink-0 bg-green-700 hover:bg-green-600 disabled:opacity-50 text-white font-semibold px-5 py-2 rounded-lg text-sm transition-colors"
             >
               {actionLoading ? 'Advancing…' : 'Next Round →'}
+            </button>
+          </div>
+        )}
+
+        {/* End tournament — only after the Final result is in */}
+        {tournament?.status === 'active' && finalCompleted && (
+          <div className="mt-4 p-5 bg-gradient-to-r from-amber-950/50 via-amber-900/30 to-amber-950/50 border-2 border-amber-700/60 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-lg shadow-amber-950/40">
+            <div className="flex items-start gap-3">
+              <span className="text-3xl trophy-shine">🏆</span>
+              <div>
+                <p className="text-sm font-bold text-amber-200">The Final is over — ready to crown the champion?</p>
+                <p className="text-xs text-amber-400/80 mt-0.5">Ending the tournament reveals the season-end posters and statistics on the live page.</p>
+              </div>
+            </div>
+            <button
+              onClick={endTournament}
+              disabled={actionLoading}
+              className="shrink-0 bg-gradient-to-r from-amber-500 via-yellow-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 disabled:opacity-50 text-gray-900 font-black px-6 py-3 rounded-xl text-sm shadow-2xl shadow-amber-900/50 transition-all hover:-translate-y-0.5"
+            >
+              {actionLoading ? 'Ending…' : '🏁 End Tournament'}
+            </button>
+          </div>
+        )}
+
+        {/* Completed banner — explain how to re-open */}
+        {tournament?.status === 'completed' && (
+          <div className="mt-4 p-4 bg-gradient-to-r from-indigo-950/40 to-emerald-950/40 border border-indigo-800/50 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-bold text-indigo-200">✅ Tournament completed</p>
+              <p className="text-xs text-indigo-400/80 mt-0.5">Champion, runner-up, top-scorer posters and full statistics are now on the live page.</p>
+            </div>
+            <button
+              onClick={reopenTournament}
+              disabled={actionLoading}
+              className="shrink-0 text-xs text-gray-400 hover:text-white font-medium px-3 py-1.5 border border-gray-700 hover:border-gray-500 rounded-lg transition-colors"
+            >
+              {actionLoading ? '…' : '↩︎ Re-open tournament'}
             </button>
           </div>
         )}

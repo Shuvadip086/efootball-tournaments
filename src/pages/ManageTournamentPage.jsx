@@ -521,6 +521,37 @@ export default function ManageTournamentPage() {
     refetch()
   }
 
+  // Delete an entire matchup (single fixture OR both legs of a pair).
+  // Useful when an extra/duplicate fixture got created in a round.
+  const deleteMatchup = async (matchup) => {
+    if (!matchup) return
+    const ids = matchup.type === 'single'
+      ? [matchup.f.id]
+      : [matchup.leg1.id, matchup.leg2?.id].filter(Boolean)
+    const homeName = matchup.type === 'single'
+      ? playerMap[matchup.f.home_player_id]?.name
+      : playerMap[matchup.leg1.home_player_id]?.name
+    const awayName = matchup.type === 'single'
+      ? playerMap[matchup.f.away_player_id]?.name
+      : playerMap[matchup.leg1.away_player_id]?.name
+    if (!confirm(
+      `Delete this matchup (${homeName ?? '?'} vs ${awayName ?? '?'})?\n\n` +
+      `${ids.length} fixture row${ids.length === 1 ? '' : 's'} will be permanently removed. ` +
+      `Standings recompute automatically from completed fixtures.`
+    )) return
+    setActionLoading(true)
+    setActionError('')
+    try {
+      const { error } = await supabase.from('fixtures').delete().in('id', ids)
+      if (error) throw error
+    } catch (e) {
+      setActionError(e.message)
+    } finally {
+      setActionLoading(false)
+      refetch()
+    }
+  }
+
   // Reset a fixture's score back to pending — works for ANY fixture
   // (group, league, knockout). The recorded result is wiped and the
   // fixture goes back to status="pending". Standings recompute from
@@ -1345,6 +1376,7 @@ export default function ManageTournamentPage() {
               onConvertFinal={convertFinalToSingleLeg}
               onReseedBracket={reseedBracket}
               onResetScore={resetFixtureScore}
+              onDeleteMatchup={deleteMatchup}
               isKnockoutFixture={isKnockoutFixture}
               actionLoading={actionLoading}
             />
@@ -1616,7 +1648,7 @@ function MatchRow({ fixture: f, playerMap, onEnterScore }) {
 }
 
 // ── Settings panel ────────────────────────────────────────────────
-function SettingsPanel({ tournament, fixtures, players = [], onSaved, onConvertFinal, onReseedBracket, onResetScore, isKnockoutFixture, actionLoading }) {
+function SettingsPanel({ tournament, fixtures, players = [], onSaved, onConvertFinal, onReseedBracket, onResetScore, onDeleteMatchup, isKnockoutFixture, actionLoading }) {
   const navigate = useNavigate()
   const [name,        setName]        = useState(tournament.name        ?? '')
   const [description, setDescription] = useState(tournament.description ?? '')
@@ -1798,6 +1830,7 @@ function SettingsPanel({ tournament, fixtures, players = [], onSaved, onConvertF
         onConvertFinal={onConvertFinal}
         onReseedBracket={onReseedBracket}
         onResetScore={onResetScore}
+        onDeleteMatchup={onDeleteMatchup}
         isKnockoutFixture={isKnockoutFixture}
         actionLoading={actionLoading}
       />
@@ -1825,7 +1858,7 @@ function SettingsPanel({ tournament, fixtures, players = [], onSaved, onConvertF
 // home_player_id / away_player_id on the underlying fixture(s) —
 // for two-leg ties both legs are updated with players swapped so
 // home/away alternates correctly.
-function BracketEditor({ tournament, fixtures, players, onSaved, onConvertFinal, onReseedBracket, onResetScore, isKnockoutFixture, actionLoading }) {
+function BracketEditor({ tournament, fixtures, players, onSaved, onConvertFinal, onReseedBracket, onResetScore, onDeleteMatchup, isKnockoutFixture, actionLoading }) {
   // Only show knockout-phase fixtures
   const knockoutFx = (fixtures ?? []).filter(f => {
     if (typeof isKnockoutFixture === 'function') return isKnockoutFixture(f)
@@ -1840,6 +1873,35 @@ function BracketEditor({ tournament, fixtures, players, onSaved, onConvertFinal,
     const finalFx = knockoutFx.filter(f => f.round === maxR)
     twoLegFinalDetected = finalFx.length === 2 &&
       finalFx[0].pair_id && finalFx[0].pair_id === finalFx[1].pair_id
+  }
+
+  // Build matchups so we can compare against expected counts
+  const _byPair = {}, _noPair = []
+  knockoutFx.forEach(f => {
+    if (f.pair_id) (_byPair[f.pair_id] ??= []).push(f)
+    else _noPair.push(f)
+  })
+  const _allMatchups = []
+  _noPair.forEach(f => _allMatchups.push({ round: f.round }))
+  Object.values(_byPair).forEach(legs => {
+    const l1 = legs.find(l => l.leg === 1) ?? legs[0]
+    _allMatchups.push({ round: l1.round })
+  })
+  const _matchupsByRound = {}
+  _allMatchups.forEach(m => { _matchupsByRound[m.round] = (_matchupsByRound[m.round] ?? 0) + 1 })
+
+  // Round count should HALVE each step. If round N+1 has more matchups
+  // than round N / 2, something is duplicated.
+  const _roundsSorted = Object.keys(_matchupsByRound).map(Number).sort((a, b) => a - b)
+  let unexpectedRound = null
+  for (let i = 1; i < _roundsSorted.length; i++) {
+    const prev = _matchupsByRound[_roundsSorted[i - 1]]
+    const curr = _matchupsByRound[_roundsSorted[i]]
+    const expectedMax = Math.max(1, Math.floor(prev / 2))
+    if (curr > expectedMax) {
+      unexpectedRound = { round: _roundsSorted[i], actual: curr, expected: expectedMax }
+      break
+    }
   }
 
   if (knockoutFx.length === 0) {
@@ -1902,6 +1964,16 @@ function BracketEditor({ tournament, fixtures, players, onSaved, onConvertFinal,
         )}
       </div>
 
+      {/* Too many matchups in a round — duplicate fixtures detected */}
+      {unexpectedRound && (
+        <div className="mb-4 p-3 bg-red-950/30 border border-red-700/40 rounded-xl">
+          <p className="text-sm font-bold text-red-200">⚠️ Extra fixtures detected</p>
+          <p className="text-[11px] text-red-300/80 mt-0.5">
+            Round {unexpectedRound.round} has <strong>{unexpectedRound.actual}</strong> matchups but should have at most <strong>{unexpectedRound.expected}</strong>. Use the 🗑 Delete button below on the extra matchup(s) to clean up.
+          </p>
+        </div>
+      )}
+
       {/* Two-leg final detected banner */}
       {twoLegFinalDetected && onConvertFinal && (
         <div className="mb-4 p-3 bg-amber-950/30 border border-amber-700/40 rounded-xl flex flex-col sm:flex-row items-start sm:items-center gap-3">
@@ -1937,6 +2009,8 @@ function BracketEditor({ tournament, fixtures, players, onSaved, onConvertFinal,
                     players={players}
                     onSaved={onSaved}
                     onResetScore={onResetScore}
+                    onDeleteMatchup={onDeleteMatchup}
+                    highlightDelete={!!(unexpectedRound && unexpectedRound.round === Number(r))}
                   />
                 ))}
               </div>
@@ -1949,7 +2023,7 @@ function BracketEditor({ tournament, fixtures, players, onSaved, onConvertFinal,
 }
 
 // One editable matchup row inside the bracket editor.
-function MatchupRow({ matchup: m, index, players, onSaved, onResetScore }) {
+function MatchupRow({ matchup: m, index, players, onSaved, onResetScore, onDeleteMatchup, highlightDelete }) {
   const [homeId, setHomeId] = useState(
     m.type === 'single' ? m.f.home_player_id : m.leg1.home_player_id
   )
@@ -2163,6 +2237,20 @@ function MatchupRow({ matchup: m, index, players, onSaved, onResetScore }) {
           >
             {saving ? 'Saving…' : savedFlag ? '✓ Saved' : 'Save'}
           </button>
+          {onDeleteMatchup && (
+            <button
+              onClick={() => onDeleteMatchup(m)}
+              disabled={saving}
+              title="Delete this matchup (removes the fixture row)"
+              className={`text-xs font-bold px-2 py-1.5 rounded-lg transition-colors ${
+                highlightDelete
+                  ? 'bg-red-600 hover:bg-red-500 text-white shadow-lg shadow-red-950/50 animate-pulse'
+                  : 'text-red-400 hover:text-white hover:bg-red-900/40 border border-red-900/40'
+              }`}
+            >
+              🗑
+            </button>
+          )}
         </div>
       </div>
 

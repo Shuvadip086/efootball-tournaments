@@ -76,7 +76,7 @@ function matchupLoserId(m) {
 //   │             5 ─ AGG ─ 1                      │
 //   └──────────────────────────────────────────────┘
 // ═══════════════════════════════════════════════════════════════════
-function PlayoffCard({ matchup: m, playerMap, playerIndex, onSubmitScore, onEnterScore, accent = 'indigo' }) {
+function PlayoffCard({ matchup: m, playerMap, playerIndex, onSubmitScore, onResetScore, onEnterScore, accent = 'indigo' }) {
   if (!m) return null
 
   const isFinal = accent === 'final'
@@ -94,6 +94,7 @@ function PlayoffCard({ matchup: m, playerMap, playerIndex, onSubmitScore, onEnte
         playerMap={playerMap}
         playerIndex={playerIndex}
         onSubmitScore={onSubmitScore}
+        onResetScore={onResetScore}
         onEnterScore={onEnterScore}
         isFinal={isFinal}
         accentBorder={accentBorder}
@@ -108,6 +109,7 @@ function PlayoffCard({ matchup: m, playerMap, playerIndex, onSubmitScore, onEnte
       playerMap={playerMap}
       playerIndex={playerIndex}
       onSubmitScore={onSubmitScore}
+      onResetScore={onResetScore}
       onEnterScore={onEnterScore}
       isFinal={isFinal}
       accentBorder={accentBorder}
@@ -117,7 +119,7 @@ function PlayoffCard({ matchup: m, playerMap, playerIndex, onSubmitScore, onEnte
 }
 
 // ── Single-leg playoff card ────────────────────────────────────────
-function PlayoffSingleCard({ fixture: f, playerMap, playerIndex, onSubmitScore, onEnterScore, isFinal, accentBorder, accentBg }) {
+function PlayoffSingleCard({ fixture: f, playerMap, playerIndex, onSubmitScore, onResetScore, onEnterScore, isFinal, accentBorder, accentBg }) {
   const home = playerMap[f.home_player_id]
   const away = playerMap[f.away_player_id]
   const done = f.status === 'completed'
@@ -219,12 +221,22 @@ function PlayoffSingleCard({ fixture: f, playerMap, playerIndex, onSubmitScore, 
           ✏️
         </button>
       )}
+      {/* Reset score — top-right ✕ when this match has a recorded score */}
+      {done && onResetScore && (
+        <button
+          onClick={() => onResetScore(f)}
+          className="absolute top-2 right-2 text-[10px] text-gray-500 hover:text-white hover:bg-red-900/70 rounded px-1.5 py-0.5 transition-colors"
+          title="Reset this score back to pending"
+        >
+          🗑 Reset
+        </button>
+      )}
     </div>
   )
 }
 
 // ── Two-leg playoff card ───────────────────────────────────────────
-function PlayoffTwoLegCard({ leg1, leg2, playerMap, playerIndex, onSubmitScore, onEnterScore, isFinal, accentBorder, accentBg }) {
+function PlayoffTwoLegCard({ leg1, leg2, playerMap, playerIndex, onSubmitScore, onResetScore, onEnterScore, isFinal, accentBorder, accentBg }) {
   const agg = getAggregate(leg1, leg2)
   const aId = leg1.home_player_id
   const bId = leg1.away_player_id
@@ -366,6 +378,29 @@ function PlayoffTwoLegCard({ leg1, leg2, playerMap, playerIndex, onSubmitScore, 
           )}
         </div>
       )}
+      {/* Per-leg reset — only on legs that have been played */}
+      {onResetScore && (leg1.status === 'completed' || leg2?.status === 'completed') && (
+        <div className="flex border-t border-gray-700/60">
+          {leg1.status === 'completed' && (
+            <button
+              onClick={() => onResetScore(leg1)}
+              className="flex-1 py-1.5 text-[10px] font-semibold text-red-400 hover:text-white hover:bg-red-900/40 transition-colors uppercase tracking-wider"
+              title="Reset Leg 1 score"
+            >
+              🗑 Reset L1
+            </button>
+          )}
+          {leg2?.status === 'completed' && (
+            <button
+              onClick={() => onResetScore(leg2)}
+              className={`flex-1 py-1.5 text-[10px] font-semibold text-red-400 hover:text-white hover:bg-red-900/40 transition-colors uppercase tracking-wider ${leg1.status === 'completed' ? 'border-l border-gray-700/60' : ''}`}
+              title="Reset Leg 2 score"
+            >
+              🗑 Reset L2
+            </button>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -385,7 +420,7 @@ function PlayoffTwoLegCard({ leg1, leg2, playerMap, playerIndex, onSubmitScore, 
 //          🏆
 //      CHAMPION
 // ═══════════════════════════════════════════════════════════════════
-export default function KnockoutBracket({ fixtures, players, onEnterScore, onSubmitScore, onCrownChampion, tournament }) {
+export default function KnockoutBracket({ fixtures, players, onEnterScore, onSubmitScore, onResetScore, onCrownChampion, tournament }) {
   const playerMap   = Object.fromEntries((players ?? []).map(p => [p.id, p]))
   const playerIndex = Object.fromEntries((players ?? []).map((p, i) => [p.id, i]))
 
@@ -447,6 +482,7 @@ export default function KnockoutBracket({ fixtures, players, onEnterScore, onSub
                   playerMap={playerMap}
                   playerIndex={playerIndex}
                   onSubmitScore={onSubmitScore}
+                  onResetScore={onResetScore}
                   onEnterScore={onEnterScore}
                   accent={isFinalRound ? 'final' : 'indigo'}
                 />

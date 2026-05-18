@@ -521,6 +521,30 @@ export default function ManageTournamentPage() {
     refetch()
   }
 
+  // Reset a fixture's score back to pending — works for ANY fixture
+  // (group, league, knockout). The recorded result is wiped and the
+  // fixture goes back to status="pending". Standings recompute from
+  // completed fixtures so they stay correct automatically.
+  // Downstream knockout rounds aren't touched — use "Re-seed Bracket"
+  // in Settings if you want the bracket to reflect new winners.
+  const resetFixtureScore = async (fixture, opts = {}) => {
+    if (!fixture) return
+    const skipConfirm = opts.skipConfirm === true
+    if (!skipConfirm && !confirm(
+      'Reset this match score?\n\n' +
+      'The recorded result is removed and the fixture goes back to "pending". ' +
+      'Standings recompute automatically.'
+    )) return
+
+    setActionError('')
+    const { error: err } = await supabase
+      .from('fixtures')
+      .update({ home_score: null, away_score: null, status: 'pending', played_at: null })
+      .eq('id', fixture.id)
+    if (err) { setActionError(err.message); return }
+    refetch()
+  }
+
   // ── Manual re-seed bracket from current results ──────────────
   // Walks every knockout round, recomputes who SHOULD be in each next
   // round based on actual results, and patches mismatched player IDs.
@@ -1176,13 +1200,13 @@ export default function ManageTournamentPage() {
                           Knockout Stage
                         </span>
                       </div>
-                      <KnockoutBracket fixtures={knockoutFixtures} players={players} onEnterScore={openScoreModal} onSubmitScore={submitInlineScore} onCrownChampion={handleCrownChampion} tournament={tournament} />
+                      <KnockoutBracket fixtures={knockoutFixtures} players={players} onEnterScore={openScoreModal} onSubmitScore={submitInlineScore} onResetScore={resetFixtureScore} onCrownChampion={handleCrownChampion} tournament={tournament} />
                     </div>
                   )}
                 </>
 
               ) : tournament?.format === 'knockout' ? (
-                <KnockoutBracket fixtures={fixtures} players={players} onEnterScore={openScoreModal} onSubmitScore={submitInlineScore} onCrownChampion={handleCrownChampion} tournament={tournament} />
+                <KnockoutBracket fixtures={fixtures} players={players} onEnterScore={openScoreModal} onSubmitScore={submitInlineScore} onResetScore={resetFixtureScore} onCrownChampion={handleCrownChampion} tournament={tournament} />
 
               ) : (
                 /* League */
@@ -1274,7 +1298,7 @@ export default function ManageTournamentPage() {
                 <LeagueTable standings={standings} players={players} />
               )}
               {tournament?.format === 'knockout' && (
-                <KnockoutBracket fixtures={fixtures} players={players} onEnterScore={openScoreModal} onSubmitScore={submitInlineScore} onCrownChampion={handleCrownChampion} tournament={tournament} />
+                <KnockoutBracket fixtures={fixtures} players={players} onEnterScore={openScoreModal} onSubmitScore={submitInlineScore} onResetScore={resetFixtureScore} onCrownChampion={handleCrownChampion} tournament={tournament} />
               )}
               {tournament?.format === 'group_knockout' && (
                 <div>
@@ -1294,7 +1318,7 @@ export default function ManageTournamentPage() {
                           Knockout Bracket
                         </span>
                       </div>
-                      <KnockoutBracket fixtures={knockoutFixtures} players={players} onEnterScore={openScoreModal} onSubmitScore={submitInlineScore} onCrownChampion={handleCrownChampion} tournament={tournament} />
+                      <KnockoutBracket fixtures={knockoutFixtures} players={players} onEnterScore={openScoreModal} onSubmitScore={submitInlineScore} onResetScore={resetFixtureScore} onCrownChampion={handleCrownChampion} tournament={tournament} />
                     </div>
                   )}
                 </div>
@@ -1320,6 +1344,7 @@ export default function ManageTournamentPage() {
               onSaved={refetch}
               onConvertFinal={convertFinalToSingleLeg}
               onReseedBracket={reseedBracket}
+              onResetScore={resetFixtureScore}
               isKnockoutFixture={isKnockoutFixture}
               actionLoading={actionLoading}
             />
@@ -1398,6 +1423,19 @@ export default function ManageTournamentPage() {
                 {actionLoading ? 'Saving…' : 'Save Score'}
               </button>
             </div>
+            {/* Reset — only when this match was already played */}
+            {scoreModal.status === 'completed' && (
+              <button
+                onClick={async () => {
+                  await resetFixtureScore(scoreModal)
+                  setScoreModal(null)
+                }}
+                disabled={actionLoading}
+                className="mt-3 w-full py-2 text-xs font-semibold text-red-400 hover:text-white hover:bg-red-900/30 border border-red-900/50 rounded-lg transition-colors"
+              >
+                🗑 Reset this score (mark as pending)
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -1578,7 +1616,7 @@ function MatchRow({ fixture: f, playerMap, onEnterScore }) {
 }
 
 // ── Settings panel ────────────────────────────────────────────────
-function SettingsPanel({ tournament, fixtures, players = [], onSaved, onConvertFinal, onReseedBracket, isKnockoutFixture, actionLoading }) {
+function SettingsPanel({ tournament, fixtures, players = [], onSaved, onConvertFinal, onReseedBracket, onResetScore, isKnockoutFixture, actionLoading }) {
   const navigate = useNavigate()
   const [name,        setName]        = useState(tournament.name        ?? '')
   const [description, setDescription] = useState(tournament.description ?? '')
@@ -1759,6 +1797,7 @@ function SettingsPanel({ tournament, fixtures, players = [], onSaved, onConvertF
         onSaved={onSaved}
         onConvertFinal={onConvertFinal}
         onReseedBracket={onReseedBracket}
+        onResetScore={onResetScore}
         isKnockoutFixture={isKnockoutFixture}
         actionLoading={actionLoading}
       />
@@ -1786,7 +1825,7 @@ function SettingsPanel({ tournament, fixtures, players = [], onSaved, onConvertF
 // home_player_id / away_player_id on the underlying fixture(s) —
 // for two-leg ties both legs are updated with players swapped so
 // home/away alternates correctly.
-function BracketEditor({ tournament, fixtures, players, onSaved, onConvertFinal, onReseedBracket, isKnockoutFixture, actionLoading }) {
+function BracketEditor({ tournament, fixtures, players, onSaved, onConvertFinal, onReseedBracket, onResetScore, isKnockoutFixture, actionLoading }) {
   // Only show knockout-phase fixtures
   const knockoutFx = (fixtures ?? []).filter(f => {
     if (typeof isKnockoutFixture === 'function') return isKnockoutFixture(f)
@@ -1897,6 +1936,7 @@ function BracketEditor({ tournament, fixtures, players, onSaved, onConvertFinal,
                     index={idx}
                     players={players}
                     onSaved={onSaved}
+                    onResetScore={onResetScore}
                   />
                 ))}
               </div>
@@ -1909,7 +1949,7 @@ function BracketEditor({ tournament, fixtures, players, onSaved, onConvertFinal,
 }
 
 // One editable matchup row inside the bracket editor.
-function MatchupRow({ matchup: m, index, players, onSaved }) {
+function MatchupRow({ matchup: m, index, players, onSaved, onResetScore }) {
   const [homeId, setHomeId] = useState(
     m.type === 'single' ? m.f.home_player_id : m.leg1.home_player_id
   )
@@ -2134,6 +2174,37 @@ function MatchupRow({ matchup: m, index, players, onSaved }) {
         <p className="text-[11px] text-amber-400 mt-1.5">
           ⚠️ This match has a recorded score — saving will keep the score but change the players.
         </p>
+      )}
+
+      {/* Score reset controls — shown when a fixture has a score */}
+      {onResetScore && hasScore && (
+        <div className="mt-2 flex flex-wrap gap-2 items-center">
+          <span className="text-[10px] uppercase tracking-wider text-gray-500 font-bold">Reset:</span>
+          {m.type === 'single' && m.f.status === 'completed' && (
+            <button
+              onClick={async () => { await onResetScore(m.f); onSaved?.() }}
+              className="text-[11px] font-bold text-red-400 hover:text-white hover:bg-red-900/40 border border-red-900/50 px-2 py-1 rounded transition-colors"
+            >
+              🗑 Match score
+            </button>
+          )}
+          {m.type === 'two-leg' && m.leg1?.status === 'completed' && (
+            <button
+              onClick={async () => { await onResetScore(m.leg1); onSaved?.() }}
+              className="text-[11px] font-bold text-red-400 hover:text-white hover:bg-red-900/40 border border-red-900/50 px-2 py-1 rounded transition-colors"
+            >
+              🗑 Leg 1 ({m.leg1.home_score}–{m.leg1.away_score})
+            </button>
+          )}
+          {m.type === 'two-leg' && m.leg2?.status === 'completed' && (
+            <button
+              onClick={async () => { await onResetScore(m.leg2); onSaved?.() }}
+              className="text-[11px] font-bold text-red-400 hover:text-white hover:bg-red-900/40 border border-red-900/50 px-2 py-1 rounded transition-colors"
+            >
+              🗑 Leg 2 ({m.leg2.home_score}–{m.leg2.away_score})
+            </button>
+          )}
+        </div>
       )}
       {err && (
         <p className="text-[11px] text-red-400 mt-1.5">{err}</p>

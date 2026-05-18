@@ -282,9 +282,86 @@ export default function ManageTournamentPage() {
     setActionLoading(true)
     setActionError('')
     const { error: err } = await supabase.rpc('advance_knockout_round', { p_tournament_id: id })
-    if (err) setActionError(err.message)
+    if (err) {
+      setActionError(err.message)
+      setActionLoading(false)
+      return
+    }
+
+    // After advancing, if the new round IS the Final and the SQL
+    // generated a two-leg tie (because home_away is on), strip leg 2
+    // so the Final is always a single match.
+    try {
+      const { data: refreshed } = await supabase
+        .from('fixtures')
+        .select('*')
+        .eq('tournament_id', id)
+      const koFx = (refreshed ?? []).filter(f =>
+        tournament?.format === 'knockout' || (f.phase ?? 'regular') === 'knockout'
+      )
+      if (koFx.length) {
+        const maxR = Math.max(...koFx.map(f => f.round ?? 1))
+        const newFinal = koFx.filter(f => f.round === maxR)
+        const isTwoLeg = newFinal.length === 2 && newFinal[0].pair_id && newFinal[0].pair_id === newFinal[1].pair_id
+        if (isTwoLeg) {
+          const leg1 = newFinal.find(l => l.leg === 1) ?? newFinal[0]
+          const leg2 = newFinal.find(l => l.leg === 2) ?? newFinal[1]
+          await supabase.from('fixtures').delete().eq('id', leg2.id)
+          await supabase.from('fixtures').update({ pair_id: null, leg: 1 }).eq('id', leg1.id)
+        }
+      }
+    } catch (_e) { /* non-fatal */ }
+
     setActionLoading(false)
     refetch()
+  }
+
+  // Manual converter for an existing two-leg Final that was created
+  // before the auto-stripping was in place. Safely refuses if both
+  // legs have already been played so we never silently lose results.
+  const convertFinalToSingleLeg = async () => {
+    const koFx = fixtures.filter(isKnockoutFixture)
+    if (koFx.length === 0) {
+      alert('No knockout fixtures yet.')
+      return
+    }
+    const maxR = Math.max(...koFx.map(f => f.round ?? 1))
+    const finalFx = koFx.filter(f => f.round === maxR)
+    if (!(finalFx.length === 2 && finalFx[0].pair_id && finalFx[0].pair_id === finalFx[1].pair_id)) {
+      alert('The Final is already a single match — nothing to convert.')
+      return
+    }
+    const leg1 = finalFx.find(l => l.leg === 1) ?? finalFx[0]
+    const leg2 = finalFx.find(l => l.leg === 2) ?? finalFx[1]
+    if (leg1.status === 'completed' && leg2.status === 'completed') {
+      alert(
+        '⚠️ Both legs of the Final already have a recorded score.\n\n' +
+        'Converting now would lose Leg 2 results. Reset one of the legs first.'
+      )
+      return
+    }
+    if (!confirm(
+      'Convert the Final to a single match?\n\n' +
+      'Leg 2 will be deleted. Leg 1 becomes the Final.\n' +
+      '(Any score in Leg 1 is kept.)'
+    )) return
+    setActionLoading(true)
+    setActionError('')
+    try {
+      const { error: e1 } = await supabase.from('fixtures').delete().eq('id', leg2.id)
+      if (e1) throw e1
+      const { error: e2 } = await supabase
+        .from('fixtures')
+        .update({ pair_id: null, leg: 1 })
+        .eq('id', leg1.id)
+      if (e2) throw e2
+      alert('✓ The Final is now a single match.')
+    } catch (e) {
+      setActionError(e.message)
+    } finally {
+      setActionLoading(false)
+      refetch()
+    }
   }
 
   const openScoreModal = (fixture) => {
@@ -1228,6 +1305,8 @@ export default function ManageTournamentPage() {
               fixtures={fixtures}
               players={players}
               onSaved={refetch}
+              onConvertFinal={convertFinalToSingleLeg}
+              isKnockoutFixture={isKnockoutFixture}
             />
           )}
 
@@ -1484,7 +1563,7 @@ function MatchRow({ fixture: f, playerMap, onEnterScore }) {
 }
 
 // ── Settings panel ────────────────────────────────────────────────
-function SettingsPanel({ tournament, fixtures, players = [], onSaved }) {
+function SettingsPanel({ tournament, fixtures, players = [], onSaved, onConvertFinal, isKnockoutFixture }) {
   const navigate = useNavigate()
   const [name,        setName]        = useState(tournament.name        ?? '')
   const [description, setDescription] = useState(tournament.description ?? '')
@@ -1658,7 +1737,14 @@ function SettingsPanel({ tournament, fixtures, players = [], onSaved }) {
       </div>
 
       {/* Knockout bracket editor */}
-      <BracketEditor tournament={tournament} fixtures={fixtures} players={players} onSaved={onSaved} />
+      <BracketEditor
+        tournament={tournament}
+        fixtures={fixtures}
+        players={players}
+        onSaved={onSaved}
+        onConvertFinal={onConvertFinal}
+        isKnockoutFixture={isKnockoutFixture}
+      />
 
       {/* Danger zone */}
       <section className="border-2 border-red-900/60 bg-red-950/20 rounded-2xl p-5 mt-8">
@@ -1683,12 +1769,22 @@ function SettingsPanel({ tournament, fixtures, players = [], onSaved }) {
 // home_player_id / away_player_id on the underlying fixture(s) —
 // for two-leg ties both legs are updated with players swapped so
 // home/away alternates correctly.
-function BracketEditor({ tournament, fixtures, players, onSaved }) {
+function BracketEditor({ tournament, fixtures, players, onSaved, onConvertFinal, isKnockoutFixture }) {
   // Only show knockout-phase fixtures
   const knockoutFx = (fixtures ?? []).filter(f => {
+    if (typeof isKnockoutFixture === 'function') return isKnockoutFixture(f)
     if (tournament?.format === 'knockout') return true
     return (f.phase ?? 'regular') === 'knockout'
   })
+
+  // Detect a two-leg final (any knockout final with same pair_id across 2 fixtures)
+  let twoLegFinalDetected = false
+  if (knockoutFx.length > 0) {
+    const maxR = Math.max(...knockoutFx.map(f => f.round ?? 1))
+    const finalFx = knockoutFx.filter(f => f.round === maxR)
+    twoLegFinalDetected = finalFx.length === 2 &&
+      finalFx[0].pair_id && finalFx[0].pair_id === finalFx[1].pair_id
+  }
 
   if (knockoutFx.length === 0) {
     return (
@@ -1739,6 +1835,24 @@ function BracketEditor({ tournament, fixtures, players, onSaved }) {
           </p>
         </div>
       </div>
+
+      {/* Two-leg final detected banner */}
+      {twoLegFinalDetected && onConvertFinal && (
+        <div className="mb-4 p-3 bg-amber-950/30 border border-amber-700/40 rounded-xl flex flex-col sm:flex-row items-start sm:items-center gap-3">
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-bold text-amber-200">⚠️ The Final has two legs</p>
+            <p className="text-[11px] text-amber-300/80 mt-0.5">
+              Finals should be a single match. Convert it now to drop Leg 2 and keep Leg 1 as the deciding game.
+            </p>
+          </div>
+          <button
+            onClick={onConvertFinal}
+            className="shrink-0 bg-amber-600 hover:bg-amber-500 text-white font-bold px-4 py-2 rounded-lg text-xs transition-colors shadow-lg shadow-amber-950/40"
+          >
+            🔄 Convert Final to Single Match
+          </button>
+        </div>
+      )}
 
       <div className="space-y-5">
         {sortedRounds.map(r => {

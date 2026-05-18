@@ -534,10 +534,17 @@ export default function ManageTournamentPage() {
     const awayName = matchup.type === 'single'
       ? playerMap[matchup.f.away_player_id]?.name
       : playerMap[matchup.leg1.away_player_id]?.name
+
+    const isTwoLeg  = matchup.type === 'two-leg'
+    const matchType = isTwoLeg ? 'two-leg match (Leg 1 + Leg 2)' : 'single match'
     if (!confirm(
-      `Delete this matchup (${homeName ?? '?'} vs ${awayName ?? '?'})?\n\n` +
-      `${ids.length} fixture row${ids.length === 1 ? '' : 's'} will be permanently removed. ` +
-      `Standings recompute automatically from completed fixtures.`
+      `Delete this match?\n\n` +
+      `   ${homeName ?? '?'}  vs  ${awayName ?? '?'}\n` +
+      `   (${matchType})\n\n` +
+      `${isTwoLeg
+        ? 'Both Leg 1 and Leg 2 are part of the SAME match, so both will be removed together.'
+        : 'This match will be permanently removed.'}\n\n` +
+      `Other matches in this round are NOT affected.`
     )) return
     setActionLoading(true)
     setActionError('')
@@ -1965,14 +1972,32 @@ function BracketEditor({ tournament, fixtures, players, onSaved, onConvertFinal,
       </div>
 
       {/* Too many matchups in a round — duplicate fixtures detected */}
-      {unexpectedRound && (
-        <div className="mb-4 p-3 bg-red-950/30 border border-red-700/40 rounded-xl">
-          <p className="text-sm font-bold text-red-200">⚠️ Extra fixtures detected</p>
-          <p className="text-[11px] text-red-300/80 mt-0.5">
-            Round {unexpectedRound.round} has <strong>{unexpectedRound.actual}</strong> matchups but should have at most <strong>{unexpectedRound.expected}</strong>. Use the 🗑 Delete button below on the extra matchup(s) to clean up.
-          </p>
-        </div>
-      )}
+      {unexpectedRound && (() => {
+        const roundName = unexpectedRound.expected === 1
+          ? 'Final'
+          : unexpectedRound.expected === 2
+          ? 'Semi-Finals'
+          : unexpectedRound.expected === 4
+          ? 'Quarter-Finals'
+          : `Round of ${unexpectedRound.expected * 2}`
+        const extras = unexpectedRound.actual - unexpectedRound.expected
+        return (
+          <div className="mb-4 p-4 bg-red-950/30 border-2 border-red-700/50 rounded-xl">
+            <p className="text-sm font-bold text-red-200">
+              ⚠️ This round should be the <span className="text-white">{roundName}</span>
+            </p>
+            <p className="text-xs text-red-300/90 mt-2 leading-relaxed">
+              It currently has <strong>{unexpectedRound.actual} matches</strong> but the {roundName} should only have <strong>{unexpectedRound.expected} match{unexpectedRound.expected === 1 ? '' : 'es'}</strong>.
+              <br />
+              <br />
+              <strong className="text-red-200">Action needed:</strong> click the pulsing red 🗑 button on <strong>{extras} extra match{extras === 1 ? '' : 'es'}</strong> below to remove the duplicate. The remaining match{unexpectedRound.expected === 1 ? '' : 'es'} will then label correctly as "{roundName}".
+            </p>
+            <p className="text-[10px] text-red-300/70 mt-3 italic">
+              Note: a two-leg match counts as ONE match (it has Leg 1 + Leg 2, but it's still one matchup). Deleting it removes both legs in one go.
+            </p>
+          </div>
+        )
+      })()}
 
       {/* Two-leg final detected banner */}
       {twoLegFinalDetected && onConvertFinal && (

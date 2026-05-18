@@ -1971,6 +1971,84 @@ function MatchupRow({ matchup: m, index, players, onSaved }) {
     ? m.f.status === 'completed'
     : (m.leg1.status === 'completed' || m.leg2?.status === 'completed')
 
+  // ── Leg conversions ────────────────────────────────────────────
+  const isTwoLeg = m.type === 'two-leg'
+
+  // 2-leg → 1-leg: delete leg 2, clear pair_id on leg 1
+  const convertToSingleLeg = async () => {
+    if (!isTwoLeg) return
+    const leg1 = m.leg1, leg2 = m.leg2
+    if (leg1?.status === 'completed' && leg2?.status === 'completed') {
+      alert(
+        '⚠️ Both legs already have a recorded score.\n\n' +
+        'Converting now would lose Leg 2 results — reset one of the legs first.'
+      )
+      return
+    }
+    if (!confirm(
+      'Convert this match to a single leg?\n\n' +
+      'Leg 2 will be deleted. Leg 1 becomes the only game.\n' +
+      '(Any score in Leg 1 is kept.)'
+    )) return
+    setSaving(true); setErr('')
+    try {
+      if (leg2) {
+        const { error: e1 } = await supabase.from('fixtures').delete().eq('id', leg2.id)
+        if (e1) throw e1
+      }
+      const { error: e2 } = await supabase
+        .from('fixtures')
+        .update({ pair_id: null, leg: 1 })
+        .eq('id', leg1.id)
+      if (e2) throw e2
+      onSaved?.()
+    } catch (e) {
+      setErr(e.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  // 1-leg → 2-leg: create leg 2 with swapped home/away
+  const convertToTwoLeg = async () => {
+    if (isTwoLeg) return
+    const f = m.f
+    if (!confirm(
+      'Convert this match to home & away (two legs)?\n\n' +
+      'A new Leg 2 fixture will be created with the home/away ' +
+      'players swapped. Leg 1 keeps any score already entered.'
+    )) return
+    setSaving(true); setErr('')
+    try {
+      const pairId = (typeof crypto !== 'undefined' && crypto.randomUUID)
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`
+      // Mark the existing fixture as leg 1 of the new pair
+      const { error: e1 } = await supabase
+        .from('fixtures')
+        .update({ pair_id: pairId, leg: 1 })
+        .eq('id', f.id)
+      if (e1) throw e1
+      // Insert leg 2 with swapped players
+      const { error: e2 } = await supabase.from('fixtures').insert({
+        tournament_id:  f.tournament_id,
+        home_player_id: f.away_player_id, // swapped
+        away_player_id: f.home_player_id,
+        round:          f.round,
+        phase:          f.phase ?? null,
+        leg:            2,
+        pair_id:        pairId,
+        status:         'pending',
+      })
+      if (e2) throw e2
+      onSaved?.()
+    } catch (e) {
+      setErr(e.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
   return (
     <div className="bg-gray-800/60 border border-gray-700/60 rounded-xl p-3">
       <div className="flex items-center gap-2 flex-wrap">
@@ -2004,11 +2082,29 @@ function MatchupRow({ matchup: m, index, players, onSaved }) {
           ))}
         </select>
 
-        {m.type === 'two-leg' && (
-          <span className="text-[9px] uppercase tracking-wider text-amber-400/80 font-bold shrink-0 bg-amber-950/40 px-2 py-1 rounded">
-            2-leg
-          </span>
-        )}
+        {/* Leg format toggle — click 1-Leg / 2-Leg to convert this matchup */}
+        <div className="flex rounded-md border border-gray-700 overflow-hidden shrink-0 text-[10px] uppercase tracking-wider font-bold">
+          <button
+            onClick={convertToSingleLeg}
+            disabled={saving || !isTwoLeg}
+            title={!isTwoLeg ? 'Already a single-leg match' : 'Convert to single-leg (delete Leg 2)'}
+            className={`px-2 py-1 transition-colors ${
+              !isTwoLeg
+                ? 'bg-indigo-600 text-white cursor-default'
+                : 'bg-gray-900 text-gray-400 hover:bg-gray-800 hover:text-white'
+            }`}
+          >1-Leg</button>
+          <button
+            onClick={convertToTwoLeg}
+            disabled={saving || isTwoLeg}
+            title={isTwoLeg ? 'Already a two-leg tie' : 'Convert to home & away (add Leg 2)'}
+            className={`px-2 py-1 transition-colors border-l border-gray-700 ${
+              isTwoLeg
+                ? 'bg-amber-600 text-white cursor-default'
+                : 'bg-gray-900 text-gray-400 hover:bg-gray-800 hover:text-white'
+            }`}
+          >2-Leg</button>
+        </div>
 
         <div className="flex items-center gap-2 ml-auto">
           {changed && (

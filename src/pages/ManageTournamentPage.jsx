@@ -1,10 +1,14 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { Link, useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
 import { useTournament } from '../hooks/useTournament'
 import LeagueTable from '../components/LeagueTable'
 import KnockoutBracket from '../components/KnockoutBracket'
-import ChampionPoster from '../components/ChampionPoster'
+import ChampionPoster, { ChampionPosterCard } from '../components/ChampionPoster'
+import RunnerUpPoster from '../components/RunnerUpPoster'
+import TopScorersPoster from '../components/TopScorersPoster'
+import { computeTournamentStats } from '../utils/tournamentStats'
+import { getPlayerPhoto, setPlayerPhoto, clearPlayerPhoto, readFileAsDataUrl } from '../utils/posterPhotos'
 import GroupStandings from '../components/GroupStandings'
 import PlayerAvatar from '../components/PlayerAvatar'
 import ShareableFixtureCard from '../components/ShareableFixtureCard'
@@ -13,7 +17,7 @@ import { exportTournamentToExcel } from '../utils/exportTournament'
 import { addMissingFixtures } from '../utils/addMissingFixtures'
 
 const GROUP_LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
-const TABS = ['Players', 'Fixtures', 'Results', 'Stats', 'Settings']
+const TABS = ['Players', 'Fixtures', 'Results', 'Stats', 'Posters', 'Settings']
 
 export default function ManageTournamentPage() {
   const { id } = useParams()
@@ -1299,6 +1303,15 @@ export default function ManageTournamentPage() {
           )}
 
           {/* ══ SETTINGS TAB ══ */}
+          {tab === 'Posters' && tournament && (
+            <PostersPanel
+              tournament={tournament}
+              fixtures={fixtures}
+              players={players}
+              isKnockoutFixture={isKnockoutFixture}
+            />
+          )}
+
           {tab === 'Settings' && tournament && (
             <SettingsPanel
               tournament={tournament}
@@ -1306,7 +1319,9 @@ export default function ManageTournamentPage() {
               players={players}
               onSaved={refetch}
               onConvertFinal={convertFinalToSingleLeg}
+              onReseedBracket={reseedBracket}
               isKnockoutFixture={isKnockoutFixture}
+              actionLoading={actionLoading}
             />
           )}
 
@@ -1563,7 +1578,7 @@ function MatchRow({ fixture: f, playerMap, onEnterScore }) {
 }
 
 // ── Settings panel ────────────────────────────────────────────────
-function SettingsPanel({ tournament, fixtures, players = [], onSaved, onConvertFinal, isKnockoutFixture }) {
+function SettingsPanel({ tournament, fixtures, players = [], onSaved, onConvertFinal, onReseedBracket, isKnockoutFixture, actionLoading }) {
   const navigate = useNavigate()
   const [name,        setName]        = useState(tournament.name        ?? '')
   const [description, setDescription] = useState(tournament.description ?? '')
@@ -1743,7 +1758,9 @@ function SettingsPanel({ tournament, fixtures, players = [], onSaved, onConvertF
         players={players}
         onSaved={onSaved}
         onConvertFinal={onConvertFinal}
+        onReseedBracket={onReseedBracket}
         isKnockoutFixture={isKnockoutFixture}
+        actionLoading={actionLoading}
       />
 
       {/* Danger zone */}
@@ -1769,7 +1786,7 @@ function SettingsPanel({ tournament, fixtures, players = [], onSaved, onConvertF
 // home_player_id / away_player_id on the underlying fixture(s) —
 // for two-leg ties both legs are updated with players swapped so
 // home/away alternates correctly.
-function BracketEditor({ tournament, fixtures, players, onSaved, onConvertFinal, isKnockoutFixture }) {
+function BracketEditor({ tournament, fixtures, players, onSaved, onConvertFinal, onReseedBracket, isKnockoutFixture, actionLoading }) {
   // Only show knockout-phase fixtures
   const knockoutFx = (fixtures ?? []).filter(f => {
     if (typeof isKnockoutFixture === 'function') return isKnockoutFixture(f)
@@ -1827,13 +1844,23 @@ function BracketEditor({ tournament, fixtures, players, onSaved, onConvertFinal,
 
   return (
     <section className="bg-gray-900/60 border border-indigo-800/40 rounded-2xl p-5 mt-8">
-      <div className="flex items-start justify-between gap-3 mb-3">
-        <div>
+      <div className="flex items-start justify-between gap-3 mb-3 flex-wrap">
+        <div className="min-w-0">
           <h3 className="text-sm font-bold text-indigo-300 uppercase tracking-wider">⚔️ Bracket Editor</h3>
           <p className="text-xs text-gray-500 mt-1">
             Manually assign players to any knockout match. Scores already entered are kept — only the player names change.
           </p>
         </div>
+        {onReseedBracket && (
+          <button
+            onClick={onReseedBracket}
+            disabled={actionLoading}
+            className="shrink-0 bg-amber-700 hover:bg-amber-600 disabled:opacity-50 text-white font-semibold px-3 py-1.5 rounded-lg text-xs transition-colors flex items-center gap-1.5"
+            title="Walk every round and update next-round player names based on the actual winners"
+          >
+            🔄 {actionLoading ? 'Re-seeding…' : 'Re-seed from Results'}
+          </button>
+        )}
       </div>
 
       {/* Two-leg final detected banner */}
@@ -2015,6 +2042,235 @@ function MatchupRow({ matchup: m, index, players, onSaved }) {
       {err && (
         <p className="text-[11px] text-red-400 mt-1.5">{err}</p>
       )}
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//   Posters tab — admin-side photo upload + live preview of the
+//   four celebration layers (Champion, Runner-Up, Top Scorers).
+//   Photos uploaded here automatically show up on the public live
+//   page once the tournament status is "completed".
+// ═══════════════════════════════════════════════════════════════════
+function PostersPanel({ tournament, fixtures, players, isKnockoutFixture }) {
+  const playerMap = useMemo(
+    () => Object.fromEntries((players ?? []).map(p => [p.id, p])),
+    [players]
+  )
+
+  // Detect champion / runner-up / top scorers from current fixtures —
+  // works even before "End Tournament" so the admin can pre-load
+  // photos for the front-runners.
+  const award = useMemo(() => {
+    const stats = computeTournamentStats(fixtures, players, tournament)
+
+    let champion = null, runnerUp = null, finalScore = null
+    const koFx = (fixtures ?? []).filter(f =>
+      typeof isKnockoutFixture === 'function'
+        ? isKnockoutFixture(f)
+        : (tournament?.format === 'knockout' || (f.phase ?? 'regular') === 'knockout')
+    )
+    if (koFx.length) {
+      const maxR  = Math.max(...koFx.map(f => f.round ?? 1))
+      const finalFx = koFx.filter(f => f.round === maxR)
+      if (finalFx.length === 2 && finalFx[0].pair_id && finalFx[0].pair_id === finalFx[1].pair_id) {
+        const l1 = finalFx.find(l => l.leg === 1) ?? finalFx[0]
+        const l2 = finalFx.find(l => l.leg === 2) ?? finalFx[1]
+        if (l1.status === 'completed' && l2.status === 'completed') {
+          const a = (l1.home_score ?? 0) + (l2.away_score ?? 0)
+          const b = (l1.away_score ?? 0) + (l2.home_score ?? 0)
+          if (a > b) { champion = playerMap[l1.home_player_id]; runnerUp = playerMap[l1.away_player_id] }
+          else if (b > a) { champion = playerMap[l1.away_player_id]; runnerUp = playerMap[l1.home_player_id] }
+          finalScore = `${Math.max(a,b)} – ${Math.min(a,b)} (agg.)`
+        }
+      } else if (finalFx.length === 1 && finalFx[0].status === 'completed') {
+        const f = finalFx[0]
+        if (f.home_score > f.away_score) { champion = playerMap[f.home_player_id]; runnerUp = playerMap[f.away_player_id] }
+        else if (f.away_score > f.home_score) { champion = playerMap[f.away_player_id]; runnerUp = playerMap[f.home_player_id] }
+        finalScore = `${Math.max(f.home_score, f.away_score)} – ${Math.min(f.home_score, f.away_score)}`
+      }
+    }
+
+    const buildStats = (id) => {
+      if (!id) return null
+      let matches = 0, gf = 0, ga = 0
+      ;(fixtures ?? []).forEach(f => {
+        if (f.status !== 'completed') return
+        if (f.home_player_id === id) { matches++; gf += f.home_score ?? 0; ga += f.away_score ?? 0 }
+        else if (f.away_player_id === id) { matches++; gf += f.away_score ?? 0; ga += f.home_score ?? 0 }
+      })
+      return { id, matches, gf, ga, gd: gf - ga, avgGF: matches ? gf/matches : 0, avgGA: matches ? ga/matches : 0 }
+    }
+
+    return {
+      champion,
+      runnerUp,
+      finalScore,
+      championStats: champion ? buildStats(champion.id) : null,
+      runnerUpStats: runnerUp ? buildStats(runnerUp.id) : null,
+      topScorers: stats.topScorers ?? [],
+    }
+  }, [tournament, fixtures, players, playerMap, isKnockoutFixture])
+
+  const isCompleted = tournament?.status === 'completed'
+
+  return (
+    <div className="space-y-8">
+      {/* Header */}
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div>
+          <h2 className="text-lg font-bold text-white">📸 Posters &amp; Champion Photos</h2>
+          <p className="text-xs text-gray-400 mt-1 max-w-xl">
+            Upload photos for the trophy lineup. Once <strong>End Tournament</strong> is clicked, these posters appear on the public live page in 4 layers — viewers can see them but only you can edit photos here.
+          </p>
+        </div>
+        <div className={`px-3 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-wider border ${
+          isCompleted
+            ? 'bg-emerald-950/60 border-emerald-700/50 text-emerald-300'
+            : 'bg-amber-950/60 border-amber-700/50 text-amber-300'
+        }`}>
+          {isCompleted ? '✓ Live on public page' : '⏳ Preview — end tournament to publish'}
+        </div>
+      </div>
+
+      {/* Player photo grid — quick upload for ANY player */}
+      <section className="bg-gray-900/40 border border-gray-800 rounded-2xl p-5">
+        <h3 className="text-sm font-bold text-indigo-300 uppercase tracking-wider mb-3">All Players</h3>
+        <p className="text-xs text-gray-500 mb-4">
+          Upload a photo for any player. The same photo automatically appears in every poster that player ends up in (Champion, Runner-Up, Top Scorer).
+        </p>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+          {(players ?? []).map(p => (
+            <PlayerPhotoTile key={p.id} tournamentId={tournament.id} player={p} />
+          ))}
+        </div>
+      </section>
+
+      {/* Champion preview */}
+      {award.champion ? (
+        <section>
+          <h3 className="text-sm font-bold text-amber-300 uppercase tracking-wider mb-3">🏆 Champion Poster</h3>
+          <ChampionPosterCard
+            tournament={tournament}
+            champion={award.champion}
+            runnerUp={award.runnerUp}
+            finalScore={award.finalScore}
+            championStats={award.championStats}
+            runnerUpStats={award.runnerUpStats}
+            allowUpload
+          />
+        </section>
+      ) : (
+        <PlaceholderPanel
+          icon="🏆"
+          title="Champion poster"
+          message="No champion yet — complete the Final to lock this in."
+        />
+      )}
+
+      {/* Runner-up preview */}
+      {award.runnerUp ? (
+        <section>
+          <h3 className="text-sm font-bold text-slate-300 uppercase tracking-wider mb-3">🥈 Runner-Up Poster</h3>
+          <RunnerUpPoster
+            tournament={tournament}
+            runnerUp={award.runnerUp}
+            runnerUpStats={award.runnerUpStats}
+            allowUpload
+          />
+        </section>
+      ) : (
+        <PlaceholderPanel
+          icon="🥈"
+          title="Runner-up poster"
+          message="Final result needed before the runner-up is known."
+        />
+      )}
+
+      {/* Top scorers preview */}
+      {award.topScorers.length > 0 ? (
+        <section>
+          <h3 className="text-sm font-bold text-amber-300 uppercase tracking-wider mb-3">⚽ Golden Boot Poster</h3>
+          <TopScorersPoster
+            tournament={tournament}
+            topScorers={award.topScorers}
+            allowUpload
+          />
+        </section>
+      ) : (
+        <PlaceholderPanel
+          icon="⚽"
+          title="Top scorers poster"
+          message="Play a few matches first — top scorers appear automatically."
+        />
+      )}
+    </div>
+  )
+}
+
+function PlaceholderPanel({ icon, title, message }) {
+  return (
+    <section className="bg-gray-900/30 border border-dashed border-gray-800 rounded-2xl p-8 text-center">
+      <p className="text-4xl mb-2 opacity-60">{icon}</p>
+      <p className="text-sm font-semibold text-gray-300">{title}</p>
+      <p className="text-xs text-gray-500 mt-1">{message}</p>
+    </section>
+  )
+}
+
+// Compact thumbnail + upload control for a single player.
+function PlayerPhotoTile({ tournamentId, player }) {
+  const [photo, setPhoto] = useState(() => getPlayerPhoto(tournamentId, player.id))
+  const fileRef = useRef(null)
+  useEffect(() => { setPhoto(getPlayerPhoto(tournamentId, player.id)) }, [tournamentId, player.id])
+
+  const onFile = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    try {
+      const dataUrl = await readFileAsDataUrl(file)
+      setPlayerPhoto(tournamentId, player.id, dataUrl)
+      setPhoto(dataUrl)
+    } catch (err) {
+      alert(err.message)
+    } finally {
+      if (fileRef.current) fileRef.current.value = ''
+    }
+  }
+  const remove = () => {
+    if (!confirm(`Remove ${player.name}'s photo?`)) return
+    clearPlayerPhoto(tournamentId, player.id)
+    setPhoto(null)
+  }
+
+  return (
+    <div className="flex items-center gap-3 bg-gray-800/60 border border-gray-700/60 rounded-xl p-2.5">
+      <div className="relative w-12 h-12 rounded-lg overflow-hidden bg-gray-900 border border-gray-700 shrink-0">
+        {photo ? (
+          <img src={photo} alt={player.name} className="w-full h-full object-cover" draggable={false} />
+        ) : (
+          <div className="absolute inset-0 flex items-center justify-center text-xl opacity-50">👤</div>
+        )}
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-bold text-white truncate">{player.name}</p>
+        <div className="flex items-center gap-1 mt-1">
+          <input ref={fileRef} type="file" accept="image/*" onChange={onFile} className="hidden" />
+          <button
+            onClick={() => fileRef.current?.click()}
+            className="text-[10px] bg-indigo-600 hover:bg-indigo-500 text-white font-semibold px-2 py-0.5 rounded transition-colors"
+          >
+            📸 {photo ? 'Change' : 'Upload'}
+          </button>
+          {photo && (
+            <button
+              onClick={remove}
+              className="text-[10px] text-gray-400 hover:text-red-400 px-1.5 py-0.5 transition-colors"
+              title="Remove photo"
+            >✕</button>
+          )}
+        </div>
+      </div>
     </div>
   )
 }

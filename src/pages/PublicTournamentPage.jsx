@@ -214,7 +214,7 @@ export default function PublicTournamentPage() {
             ═══════════════════════════════════════════════════════════ */}
         {isCompleted && celebration && (
           <div className="space-y-12">
-            {/* Layer 1 — Champion */}
+            {/* Layer 1 — Champion (display only; admin uploads photo from Manage page) */}
             {celebration.champion && (
               <section>
                 <SectionHeader icon="🏆" title="Champion" subtitle="The Winner Takes It All" />
@@ -225,12 +225,12 @@ export default function PublicTournamentPage() {
                   finalScore={celebration.finalScore}
                   championStats={celebration.championStats}
                   runnerUpStats={celebration.runnerUpStats}
-                  allowUpload
+                  allowUpload={false}
                 />
               </section>
             )}
 
-            {/* Layer 2 — Runner-Up */}
+            {/* Layer 2 — Runner-Up (display only) */}
             {celebration.runnerUp && (
               <section>
                 <SectionHeader icon="🥈" title="Runner-Up" subtitle="So Close to Glory" />
@@ -238,19 +238,19 @@ export default function PublicTournamentPage() {
                   tournament={tournament}
                   runnerUp={celebration.runnerUp}
                   runnerUpStats={celebration.runnerUpStats}
-                  allowUpload
+                  allowUpload={false}
                 />
               </section>
             )}
 
-            {/* Layer 3 — Top 3 Scorers */}
+            {/* Layer 3 — Top 3 Scorers (display only) */}
             {celebration.stats.topScorers && celebration.stats.topScorers.length > 0 && (
               <section>
                 <SectionHeader icon="⚽" title="Golden Boot" subtitle="The Goal Machines" />
                 <TopScorersPoster
                   tournament={tournament}
                   topScorers={celebration.stats.topScorers}
-                  allowUpload
+                  allowUpload={false}
                 />
               </section>
             )}

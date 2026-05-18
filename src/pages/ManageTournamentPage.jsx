@@ -549,10 +549,26 @@ export default function ManageTournamentPage() {
     setActionLoading(true)
     setActionError('')
     try {
-      const { error } = await supabase.from('fixtures').delete().in('id', ids)
+      // Use .select() to get back the actually-deleted rows so we can
+      // detect a silent RLS block (returns success + 0 rows when the
+      // fixtures-delete policy is missing on the DB).
+      const { data: deletedRows, error } = await supabase
+        .from('fixtures')
+        .delete()
+        .in('id', ids)
+        .select()
       if (error) throw error
+      if (!deletedRows || deletedRows.length === 0) {
+        throw new Error(
+          'Delete was silently blocked by the database. ' +
+          'Your Supabase project is missing the "fixtures DELETE" policy. ' +
+          'Fix: run supabase-migration-fixtures-delete.sql in the Supabase SQL Editor, ' +
+          'then click delete again.'
+        )
+      }
     } catch (e) {
       setActionError(e.message)
+      alert('❌ ' + e.message)
     } finally {
       setActionLoading(false)
       refetch()

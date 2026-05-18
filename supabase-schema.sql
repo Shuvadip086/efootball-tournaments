@@ -172,6 +172,10 @@ create policy "fixtures: tournament owner update" on public.fixtures
   for update using (
     exists (select 1 from public.tournaments t where t.id = tournament_id and t.owner_id = auth.uid())
   );
+create policy "fixtures: tournament owner delete" on public.fixtures
+  for delete using (
+    exists (select 1 from public.tournaments t where t.id = tournament_id and t.owner_id = auth.uid())
+  );
 
 -- standings
 create policy "standings: public read" on public.standings

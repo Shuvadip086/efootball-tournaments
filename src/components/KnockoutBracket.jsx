@@ -441,8 +441,32 @@ export default function KnockoutBracket({ fixtures, players, onEnterScore, onSub
   const champion        = championId ? playerMap[championId] : null
   const runnerUp        = runnerUpId ? playerMap[runnerUpId] : null
 
+  const handlePrint = () => {
+    document.documentElement.classList.add('print-bracket-active')
+    // Give the browser a tick to apply the class before opening the dialog
+    setTimeout(() => {
+      window.print()
+      // Clean up after the dialog closes — afterprint fires reliably
+      const cleanup = () => {
+        document.documentElement.classList.remove('print-bracket-active')
+        window.removeEventListener('afterprint', cleanup)
+      }
+      window.addEventListener('afterprint', cleanup)
+    }, 50)
+  }
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 print-bracket">
+      {/* Print button — hidden on the paper version via .no-print */}
+      <div className="flex justify-end no-print">
+        <button
+          onClick={handlePrint}
+          className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-200 border border-gray-700 rounded-lg transition-colors"
+          title="Print or save the bracket as PDF"
+        >
+          🖨️ Print / Save as PDF
+        </button>
+      </div>
       {rounds.map((round, rIdx) => {
         const roundMatchups = matchups
           .filter(m => m.round === round)

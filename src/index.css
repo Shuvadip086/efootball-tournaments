@@ -167,6 +167,54 @@
   border: 1px solid rgba(99, 102, 241, 0.15);
 }
 
+/* ─────────────────────────────────────────────────────────────────────
+   PRINT STYLES — Bracket-only PDF export
+   When the user clicks "Print Bracket" we want clean A4 landscape with
+   no navbar / no action bars / no buttons — just the bracket on white.
+   Triggered by .print-bracket-active class added to <html> right before
+   window.print().
+   ───────────────────────────────────────────────────────────────────── */
+@media print {
+  html.print-bracket-active body {
+    background: white !important;
+    color: black !important;
+  }
+  /* Hide everything except the marked bracket section */
+  html.print-bracket-active body * {
+    visibility: hidden !important;
+  }
+  html.print-bracket-active .print-bracket,
+  html.print-bracket-active .print-bracket * {
+    visibility: visible !important;
+  }
+  html.print-bracket-active .print-bracket {
+    position: absolute !important;
+    inset: 0 !important;
+    margin: 0 !important;
+    padding: 20px !important;
+    color: black !important;
+    background: white !important;
+  }
+  /* Hide controls inside the bracket while printing */
+  html.print-bracket-active .print-bracket .no-print,
+  html.print-bracket-active .print-bracket button,
+  html.print-bracket-active .print-bracket input {
+    display: none !important;
+  }
+  /* Make the cards readable on paper */
+  html.print-bracket-active .print-bracket .text-white,
+  html.print-bracket-active .print-bracket .text-gray-300,
+  html.print-bracket-active .print-bracket .text-gray-400 {
+    color: #111 !important;
+  }
+  html.print-bracket-active .print-bracket [class*="bg-"],
+  html.print-bracket-active .print-bracket [class*="from-"],
+  html.print-bracket-active .print-bracket [class*="via-"] {
+    background: white !important;
+  }
+  @page { size: landscape; margin: 12mm; }
+}
+
 /* Hero "match-day" gradient text */
 .match-day-text {
   background: linear-gradient(135deg, #fff 0%, #c7d2fe 40%, #6ee7b7 100%);

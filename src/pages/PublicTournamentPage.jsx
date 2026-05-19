@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useTournament } from '../hooks/useTournament'
 import LeagueTable from '../components/LeagueTable'
@@ -18,9 +18,40 @@ const FORMAT_ICON  = { league: '📊', knockout: '🥊', group_knockout: '🏆' 
 const FORMAT_LABEL = { league: 'Round Robin', knockout: 'Single Elimination', group_knockout: 'Group + Knockout' }
 const GROUP_LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
 
+/** Update or create a <meta> tag — used to keep the tab title /
+ *  social preview text in sync with the loaded tournament. */
+function setMetaTag(name, content, isOg = false) {
+  if (typeof document === 'undefined') return
+  const attr = isOg ? 'property' : 'name'
+  let el = document.head.querySelector(`meta[${attr}="${name}"]`)
+  if (!el) {
+    el = document.createElement('meta')
+    el.setAttribute(attr, name)
+    document.head.appendChild(el)
+  }
+  el.setAttribute('content', content)
+}
+
 export default function PublicTournamentPage() {
   const { slug } = useParams()
   const { tournament, players, fixtures, loading, error } = useTournament(slug, { bySlug: true })
+
+  // Per-tournament browser tab title + dynamic OG description (best-effort
+  // for client-rendered crawlers like Twitter; static fallback in index.html
+  // covers the rest).
+  useEffect(() => {
+    if (!tournament?.name) return
+    const fmt = FORMAT_LABEL[tournament.format] ?? 'Tournament'
+    const status = tournament.status === 'completed' ? 'Final' : tournament.status === 'active' ? 'Live' : 'Upcoming'
+    document.title = `${tournament.name} · ${status} · eFootball Tournaments`
+    const desc = `${tournament.name} — ${fmt}. ${status === 'Live' ? 'Live bracket, fixtures, top scorers.' : status === 'Final' ? 'See the champion, podium, and tournament stats.' : 'Fixtures and standings.'}`
+    setMetaTag('description', desc)
+    setMetaTag('og:title', `${tournament.name} · eFootball Tournaments`, true)
+    setMetaTag('og:description', desc, true)
+    return () => {
+      document.title = 'eFootball Tournaments'
+    }
+  }, [tournament?.name, tournament?.status, tournament?.format])
 
   // Always derive standings from fixtures (single source of truth).
   // Avoids drift caused by the DB trigger incrementing on every score save.
@@ -36,6 +67,28 @@ export default function PublicTournamentPage() {
   const completedFixtures  = fixtures.filter(f => f.status === 'completed')
   const pendingFixtures    = fixtures.filter(f => f.status === 'pending')
   const playerMap          = Object.fromEntries(players.map(p => [p.id, p]))
+
+  // The next pending match with a scheduled_at in the future — drives
+  // the "📅 Next: A vs B · in 2h" pill below the hero badges.
+  const nextScheduledMatch = useMemo(() => {
+    const now = Date.now()
+    const upcoming = fixtures
+      .filter(f => f.status === 'pending' && f.scheduled_at && new Date(f.scheduled_at).getTime() > now)
+      .sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at))
+    if (upcoming.length === 0) return null
+    const f = upcoming[0]
+    const homeName = playerMap[f.home_player_id]?.name ?? 'TBD'
+    const awayName = playerMap[f.away_player_id]?.name ?? 'TBD'
+    // Relative time when within 7 days, otherwise an explicit date
+    const ts = new Date(f.scheduled_at)
+    const diffMin = Math.round((ts.getTime() - now) / 60000)
+    let when
+    if (diffMin < 60) when = `in ${diffMin} min`
+    else if (diffMin < 60 * 24) when = `in ${Math.round(diffMin / 60)}h`
+    else if (diffMin < 60 * 24 * 7) when = `in ${Math.round(diffMin / 60 / 24)} day${Math.round(diffMin/60/24) === 1 ? '' : 's'}`
+    else when = ts.toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+    return { homeName, awayName, when }
+  }, [fixtures, playerMap])
 
   // ── Tournament-end celebration data ─────────────────────────────
   const isCompleted = tournament?.status === 'completed'
@@ -159,14 +212,30 @@ export default function PublicTournamentPage() {
                 🔄 Home &amp; Away
               </span>
             )}
-            <span className={`px-3 py-1 rounded-full text-xs font-bold ${
-              tournament.status === 'active'    ? 'bg-green-500/20 text-green-400 border border-green-700/40' :
-              tournament.status === 'completed' ? 'bg-amber-500/20 text-amber-400 border border-amber-700/40' :
-                                                  'bg-gray-700/60 text-gray-400'
+            <span className={`px-3 py-1 rounded-full text-xs font-bold inline-flex items-center gap-1.5 ${
+              tournament.status === 'active'    ? 'bg-green-500/20 text-green-300 border border-green-500/50 shadow-[0_0_18px_rgba(74,222,128,0.35)]' :
+              tournament.status === 'completed' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/50 shadow-[0_0_18px_rgba(251,191,36,0.35)]' :
+                                                  'bg-gray-700/60 text-gray-400 border border-gray-700'
             }`}>
-              {tournament.status === 'active' ? '🟢 Live' : tournament.status === 'completed' ? '🏆 Completed' : '⏳ Draft'}
+              {tournament.status === 'active' ? (
+                <>
+                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+                  LIVE
+                </>
+              ) : tournament.status === 'completed' ? '🏆 COMPLETED' : '⏳ UPCOMING'}
             </span>
           </div>
+
+          {/* Next scheduled match — uses the new fixtures.scheduled_at field */}
+          {nextScheduledMatch && (
+            <div className="mt-4 inline-flex items-center gap-2 bg-indigo-950/60 border border-indigo-700/40 rounded-full px-4 py-1.5 text-xs text-indigo-200">
+              <span className="text-indigo-400">📅</span>
+              <span>
+                Next: <strong className="text-white">{nextScheduledMatch.homeName}</strong> vs <strong className="text-white">{nextScheduledMatch.awayName}</strong>
+                {' '}· {nextScheduledMatch.when}
+              </span>
+            </div>
+          )}
 
           {/* Quick stats row — scoreboard style */}
           {fixtures.length > 0 && (

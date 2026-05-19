@@ -9,6 +9,7 @@ import RunnerUpPoster from '../components/RunnerUpPoster'
 import TopScorersPoster from '../components/TopScorersPoster'
 import { computeTournamentStats } from '../utils/tournamentStats'
 import { getPlayerPhoto, savePlayerPhoto, removePlayerPhoto, readFileAsResizedDataUrl } from '../utils/posterPhotos'
+import { notifyMatchResult, notifyWinnerFlipped, notifyChampion, testWebhook } from '../utils/discordWebhook'
 import GroupStandings from '../components/GroupStandings'
 import PlayerAvatar from '../components/PlayerAvatar'
 import ShareableFixtureCard from '../components/ShareableFixtureCard'
@@ -36,6 +37,7 @@ export default function ManageTournamentPage() {
   const [actionError, setActionError] = useState('')
   const [scoreModal, setScoreModal] = useState(null)
   const [scores, setScores] = useState({ home: '', away: '' })
+  const [scheduledAtInput, setScheduledAtInput] = useState('') // datetime-local string
   const [showFixtureCard, setShowFixtureCard] = useState(false)
   const [championPosterData, setChampionPosterData] = useState(null) // { champion, runnerUp, finalScore }
   const [draggingId, setDraggingId]     = useState(null)
@@ -371,6 +373,33 @@ export default function ManageTournamentPage() {
   const openScoreModal = (fixture) => {
     setScoreModal(fixture)
     setScores({ home: fixture.home_score ?? '', away: fixture.away_score ?? '' })
+    // Pre-fill the <input type="datetime-local"> field with the existing
+    // schedule. datetime-local wants "YYYY-MM-DDTHH:mm" (no timezone).
+    if (fixture.scheduled_at) {
+      const d = new Date(fixture.scheduled_at)
+      const pad = (n) => String(n).padStart(2, '0')
+      setScheduledAtInput(
+        `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+      )
+    } else {
+      setScheduledAtInput('')
+    }
+  }
+
+  // Save just the scheduled time (without entering a score) — used by
+  // the modal's "Save schedule" button when the user only wants to plan
+  // the kick-off time.
+  const saveScheduledAt = async () => {
+    if (!scoreModal) return
+    setActionError('')
+    const iso = scheduledAtInput ? new Date(scheduledAtInput).toISOString() : null
+    const { error } = await supabase
+      .from('fixtures')
+      .update({ scheduled_at: iso })
+      .eq('id', scoreModal.id)
+    if (error) return setActionError(error.message)
+    setScoreModal(null)
+    refetch()
   }
 
   // Determines if a fixture is a knockout-phase fixture (for either format)
@@ -502,6 +531,72 @@ export default function ManageTournamentPage() {
     // detect that the aggregate winner flipped).
     const newWinnerId = winnerAfterEdit(fixture, homeScore, awayScore)
     await maybePropagateWinnerChange(fixture, oldWinnerId, newWinnerId)
+
+    // ── Discord webhook notifications (fire-and-forget) ─────────────
+    try {
+      const homeName = playerMap[fixture.home_player_id]?.name
+      const awayName = playerMap[fixture.away_player_id]?.name
+      const isKO = isKnockoutFixture(fixture)
+      const roundLabel = (() => {
+        if (!isKO) return null
+        const koFx = fixtures.filter(isKnockoutFixture)
+        const maxR = Math.max(...koFx.map(f => f.round ?? 1), 1)
+        const sameRoundCount = new Set(
+          koFx.filter(f => f.round === fixture.round).map(f => f.pair_id ?? f.id)
+        ).size
+        if (sameRoundCount === 1) return 'Final'
+        if (sameRoundCount === 2) return 'Semi-Finals'
+        if (sameRoundCount === 4) return 'Quarter-Finals'
+        return `Round ${fixture.round}`
+      })()
+      const legLabel = fixture.pair_id ? `Leg ${fixture.leg ?? 1}` : null
+
+      // Build aggregate line for two-leg matchups (after this save)
+      let aggregateLine = null
+      if (fixture.pair_id) {
+        const legs = fixtures.filter(f => f.pair_id === fixture.pair_id)
+        const leg1 = legs.find(l => l.leg === 1) ?? legs[0]
+        const leg2 = legs.find(l => l.leg === 2) ?? legs[1]
+        const sub = (l) => l?.id === fixture.id
+          ? { ...l, home_score: homeScore, away_score: awayScore, status: 'completed' }
+          : l
+        const l1 = sub(leg1), l2 = sub(leg2)
+        if (l1?.status === 'completed' && l2?.status === 'completed') {
+          const a = (l1.home_score ?? 0) + (l2.away_score ?? 0)
+          const b = (l1.away_score ?? 0) + (l2.home_score ?? 0)
+          aggregateLine = `${a} – ${b}`
+        }
+      }
+
+      await notifyMatchResult({
+        tournament,
+        fixture: { ...fixture, home_score: homeScore, away_score: awayScore, status: 'completed' },
+        homeName, awayName, legLabel, roundLabel, aggregateLine,
+      })
+
+      // Bracket-flip notification
+      if (oldWinnerId && newWinnerId && oldWinnerId !== newWinnerId) {
+        await notifyWinnerFlipped({
+          tournament,
+          fromName: playerMap[oldWinnerId]?.name,
+          toName:   playerMap[newWinnerId]?.name,
+          roundsTouched: [roundLabel].filter(Boolean),
+        })
+      }
+
+      // Champion-crowned notification (only when this save IS the final result)
+      if (isKO && roundLabel === 'Final' && newWinnerId) {
+        const championName = playerMap[newWinnerId]?.name
+        const loserId = fixture.home_player_id === newWinnerId
+          ? fixture.away_player_id
+          : fixture.home_player_id
+        const runnerUpName = playerMap[loserId]?.name
+        const finalScore = aggregateLine
+          ? `${aggregateLine} (agg.)`
+          : `${Math.max(homeScore, awayScore)} – ${Math.min(homeScore, awayScore)}`
+        await notifyChampion({ tournament, championName, runnerUpName, finalScore })
+      }
+    } catch (_e) { /* webhook errors never block the app */ }
   }
 
   const submitScore = async () => {
@@ -1467,12 +1562,49 @@ export default function ManageTournamentPage() {
                 />
               </div>
             </div>
+            {/* Scheduled time — optional, lets the bracket / live page
+                show "Upcoming on …" and powers the status badge. */}
+            <div className="mt-4">
+              <label className="block text-xs text-gray-400 mb-1">📅 Scheduled time <span className="text-gray-600">(optional)</span></label>
+              <input
+                type="datetime-local"
+                value={scheduledAtInput}
+                onChange={e => setScheduledAtInput(e.target.value)}
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
+              />
+              <div className="flex items-center gap-2 mt-1.5">
+                {scheduledAtInput && (
+                  <button
+                    onClick={() => setScheduledAtInput('')}
+                    className="text-[11px] text-gray-500 hover:text-red-400 transition-colors"
+                  >Clear</button>
+                )}
+                <button
+                  onClick={saveScheduledAt}
+                  disabled={actionLoading}
+                  className="text-[11px] text-indigo-400 hover:text-white hover:bg-indigo-600/60 px-2 py-0.5 rounded transition-colors ml-auto"
+                  title="Save just the schedule without entering a score"
+                >
+                  Save schedule only →
+                </button>
+              </div>
+            </div>
+
             <div className="flex gap-2 mt-4">
               <button onClick={() => setScoreModal(null)} className="flex-1 py-2.5 border border-gray-700 rounded-lg text-gray-400 hover:text-white text-sm transition-colors">
                 Cancel
               </button>
               <button
-                onClick={submitScore}
+                onClick={async () => {
+                  // If the user changed the scheduled-at field, persist it too
+                  if (scheduledAtInput !== '' || scoreModal?.scheduled_at) {
+                    const iso = scheduledAtInput ? new Date(scheduledAtInput).toISOString() : null
+                    if (iso !== scoreModal.scheduled_at) {
+                      await supabase.from('fixtures').update({ scheduled_at: iso }).eq('id', scoreModal.id)
+                    }
+                  }
+                  await submitScore()
+                }}
                 disabled={actionLoading || scores.home === '' || scores.away === ''}
                 className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-semibold rounded-lg text-sm transition-colors"
               >
@@ -1680,6 +1812,9 @@ function SettingsPanel({ tournament, fixtures, players = [], onSaved, onConvertF
   const [homeAway,    setHomeAway]    = useState(!!tournament.home_away)
   const [numGroups,   setNumGroups]   = useState(tournament.num_groups ?? 4)
   const [teamsAdv,    setTeamsAdv]    = useState(tournament.teams_advancing ?? 2)
+  const [webhookUrl,  setWebhookUrl]  = useState(tournament.discord_webhook_url ?? '')
+  const [webhookTesting, setWebhookTesting] = useState(false)
+  const [webhookTested,  setWebhookTested]  = useState(null) // 'ok' | 'fail' | null
   const [saving,      setSaving]      = useState(false)
   const [savedAt,     setSavedAt]     = useState(null)
   const [err,         setErr]         = useState('')
@@ -1695,6 +1830,7 @@ function SettingsPanel({ tournament, fixtures, players = [], onSaved, onConvertF
       description: description.trim() || null,
       max_players: Number(maxPlayers) || 8,
       home_away: homeAway,
+      discord_webhook_url: webhookUrl.trim() || null,
     }
     if (isGroupKO) {
       patch.num_groups = Number(numGroups) || 4
@@ -1827,6 +1963,57 @@ function SettingsPanel({ tournament, fixtures, players = [], onSaved, onConvertF
             )}
           </div>
         )}
+      </section>
+
+      {/* Discord integration */}
+      <section className="bg-gray-900/60 border border-indigo-800/40 rounded-2xl p-5 space-y-3">
+        <div>
+          <h3 className="text-sm font-bold text-indigo-300 uppercase tracking-wider">🔔 Discord Notifications</h3>
+          <p className="text-xs text-gray-500 mt-1">
+            Paste a Discord webhook URL and we'll post a rich embed every time a match result is saved, a winner flips mid-bracket, or the champion is crowned.
+          </p>
+          <p className="text-[10px] text-gray-600 mt-1">
+            Create one in Discord: <span className="text-gray-400">Server Settings → Integrations → Webhooks → New Webhook → Copy URL</span>
+          </p>
+        </div>
+
+        <div>
+          <label className="block text-xs text-gray-400 mb-1.5">Webhook URL</label>
+          <input
+            type="url"
+            value={webhookUrl}
+            onChange={e => { setWebhookUrl(e.target.value); setWebhookTested(null) }}
+            placeholder="https://discord.com/api/webhooks/..."
+            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 font-mono"
+          />
+          {webhookTested === 'ok' && (
+            <p className="text-[11px] text-emerald-400 mt-1.5">✓ Test message sent — check your Discord channel.</p>
+          )}
+          {webhookTested === 'fail' && (
+            <p className="text-[11px] text-red-400 mt-1.5">✗ Test failed — double-check the URL and try again.</p>
+          )}
+        </div>
+
+        <button
+          type="button"
+          onClick={async () => {
+            setWebhookTested(null)
+            setWebhookTesting(true)
+            try {
+              await testWebhook(webhookUrl.trim())
+              setWebhookTested('ok')
+            } catch (e) {
+              setWebhookTested('fail')
+              setErr(e.message)
+            } finally {
+              setWebhookTesting(false)
+            }
+          }}
+          disabled={!webhookUrl.trim() || webhookTesting}
+          className="text-xs font-semibold px-3 py-1.5 bg-indigo-700 hover:bg-indigo-600 disabled:opacity-50 text-white rounded-lg transition-colors"
+        >
+          {webhookTesting ? 'Sending…' : '📡 Send test message'}
+        </button>
       </section>
 
       {/* Save bar */}

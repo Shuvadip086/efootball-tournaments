@@ -26,6 +26,7 @@ create table if not exists public.tournaments (
   status text not null default 'draft' check (status in ('draft','active','completed')),
   max_players int not null default 8,
   description text,
+  discord_webhook_url text,
   created_at timestamptz default now(),
   updated_at timestamptz default now()
 );
@@ -51,6 +52,7 @@ create table if not exists public.fixtures (
   away_score int,
   status text not null default 'pending' check (status in ('pending','completed')),
   played_at timestamptz,
+  scheduled_at timestamptz,
   created_at timestamptz default now()
 );
 

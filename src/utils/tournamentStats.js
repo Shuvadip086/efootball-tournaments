@@ -19,6 +19,9 @@ export function computeTournamentStats(fixtures, players, tournament) {
   const perPlayer = {} // { [id]: { matches, gf, ga, won, drawn, lost, cleanSheets, biggestWin } }
   players?.forEach(p => {
     perPlayer[p.id] = {
+      // Carry the whole player row so callers (e.g. TopScorersPoster)
+      // can read photo_data_url / tournament_id directly.
+      ...p,
       id: p.id, name: p.name,
       matches: 0, gf: 0, ga: 0,
       won: 0, drawn: 0, lost: 0,

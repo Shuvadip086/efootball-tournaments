@@ -8,7 +8,7 @@ import ChampionPoster, { ChampionPosterCard } from '../components/ChampionPoster
 import RunnerUpPoster from '../components/RunnerUpPoster'
 import TopScorersPoster from '../components/TopScorersPoster'
 import { computeTournamentStats } from '../utils/tournamentStats'
-import { getPlayerPhoto, setPlayerPhoto, clearPlayerPhoto, readFileAsDataUrl } from '../utils/posterPhotos'
+import { getPlayerPhoto, savePlayerPhoto, removePlayerPhoto, readFileAsResizedDataUrl } from '../utils/posterPhotos'
 import GroupStandings from '../components/GroupStandings'
 import PlayerAvatar from '../components/PlayerAvatar'
 import ShareableFixtureCard from '../components/ShareableFixtureCard'
@@ -1387,6 +1387,7 @@ export default function ManageTournamentPage() {
               fixtures={fixtures}
               players={players}
               isKnockoutFixture={isKnockoutFixture}
+              onSaved={refetch}
             />
           )}
 
@@ -2348,7 +2349,7 @@ function MatchupRow({ matchup: m, index, players, onSaved, onResetScore, onDelet
 //   Photos uploaded here automatically show up on the public live
 //   page once the tournament status is "completed".
 // ═══════════════════════════════════════════════════════════════════
-function PostersPanel({ tournament, fixtures, players, isKnockoutFixture }) {
+function PostersPanel({ tournament, fixtures, players, isKnockoutFixture, onSaved }) {
   const playerMap = useMemo(
     () => Object.fromEntries((players ?? []).map(p => [p.id, p])),
     [players]
@@ -2437,7 +2438,7 @@ function PostersPanel({ tournament, fixtures, players, isKnockoutFixture }) {
         </p>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
           {(players ?? []).map(p => (
-            <PlayerPhotoTile key={p.id} tournamentId={tournament.id} player={p} />
+            <PlayerPhotoTile key={p.id} tournamentId={tournament.id} player={p} onSaved={onSaved} />
           ))}
         </div>
       </section>
@@ -2515,28 +2516,45 @@ function PlaceholderPanel({ icon, title, message }) {
 }
 
 // Compact thumbnail + upload control for a single player.
-function PlayerPhotoTile({ tournamentId, player }) {
-  const [photo, setPhoto] = useState(() => getPlayerPhoto(tournamentId, player.id))
+function PlayerPhotoTile({ tournamentId: _tid, player, onSaved }) {
+  const [photo, setPhoto]   = useState(getPlayerPhoto(player))
+  const [saving, setSaving] = useState(false)
   const fileRef = useRef(null)
-  useEffect(() => { setPhoto(getPlayerPhoto(tournamentId, player.id)) }, [tournamentId, player.id])
+  useEffect(() => { setPhoto(getPlayerPhoto(player)) }, [player?.id, player?.photo_data_url])
 
   const onFile = async (e) => {
     const file = e.target.files?.[0]
     if (!file) return
+    setSaving(true)
     try {
-      const dataUrl = await readFileAsDataUrl(file)
-      setPlayerPhoto(tournamentId, player.id, dataUrl)
+      const dataUrl = await readFileAsResizedDataUrl(file)
+      await savePlayerPhoto(player, dataUrl)
       setPhoto(dataUrl)
+      onSaved?.()
     } catch (err) {
-      alert(err.message)
+      // Most likely cause is the missing `photo_data_url` column in
+      // the players table. Surface the migration filename clearly.
+      const msg = (err.message || '').includes('column')
+        ? err.message + '\n\nRun supabase-migration-player-photos.sql in the Supabase SQL Editor, then try again.'
+        : err.message
+      alert('❌ ' + msg)
     } finally {
+      setSaving(false)
       if (fileRef.current) fileRef.current.value = ''
     }
   }
-  const remove = () => {
+  const remove = async () => {
     if (!confirm(`Remove ${player.name}'s photo?`)) return
-    clearPlayerPhoto(tournamentId, player.id)
-    setPhoto(null)
+    setSaving(true)
+    try {
+      await removePlayerPhoto(player)
+      setPhoto(null)
+      onSaved?.()
+    } catch (err) {
+      alert('❌ ' + err.message)
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
@@ -2554,14 +2572,16 @@ function PlayerPhotoTile({ tournamentId, player }) {
           <input ref={fileRef} type="file" accept="image/*" onChange={onFile} className="hidden" />
           <button
             onClick={() => fileRef.current?.click()}
-            className="text-[10px] bg-indigo-600 hover:bg-indigo-500 text-white font-semibold px-2 py-0.5 rounded transition-colors"
+            disabled={saving}
+            className="text-[10px] bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-semibold px-2 py-0.5 rounded transition-colors"
           >
-            📸 {photo ? 'Change' : 'Upload'}
+            📸 {saving ? '…' : (photo ? 'Change' : 'Upload')}
           </button>
           {photo && (
             <button
               onClick={remove}
-              className="text-[10px] text-gray-400 hover:text-red-400 px-1.5 py-0.5 transition-colors"
+              disabled={saving}
+              className="text-[10px] text-gray-400 hover:text-red-400 disabled:opacity-50 px-1.5 py-0.5 transition-colors"
               title="Remove photo"
             >✕</button>
           )}

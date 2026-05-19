@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { getPlayerPhoto, setPlayerPhoto, clearPlayerPhoto, readFileAsDataUrl } from '../utils/posterPhotos'
+import { getPlayerPhoto, savePlayerPhoto, removePlayerPhoto, readFileAsResizedDataUrl } from '../utils/posterPhotos'
 
 /**
  * Champion Poster — portrait-style trophy card for the tournament
@@ -62,26 +62,34 @@ export function ChampionPosterCard({
   tournament, champion, runnerUp, finalScore,
   championStats, runnerUpStats, allowUpload = true,
 }) {
-  const playerId = champion?.id
-  const tid      = tournament?.id
-
-  const [photo, setPhoto] = useState(() => getPlayerPhoto(tid, playerId))
-  const fileRef = useRef(null)
-  useEffect(() => { setPhoto(getPlayerPhoto(tid, playerId)) }, [tid, playerId])
+  // Photo lives on the champion player row (synced via Supabase).
+  // The local `photo` state is just an optimistic preview so the new
+  // image appears instantly without waiting for a refetch.
+  const [photo, setPhoto]   = useState(getPlayerPhoto(champion))
+  const [saving, setSaving] = useState(false)
+  const fileRef             = useRef(null)
+  useEffect(() => { setPhoto(getPlayerPhoto(champion)) }, [champion?.id, champion?.photo_data_url])
 
   const handleFile = async (e) => {
     const file = e.target.files?.[0]
-    if (!file) return
+    if (!file || !champion?.id) return
+    setSaving(true)
     try {
-      const dataUrl = await readFileAsDataUrl(file)
-      setPlayerPhoto(tid, playerId, dataUrl)
+      const dataUrl = await readFileAsResizedDataUrl(file)
+      await savePlayerPhoto(champion, dataUrl)
       setPhoto(dataUrl)
-    } catch (err) { alert(err.message) }
+    } catch (err) { alert('❌ ' + err.message) }
+    finally { setSaving(false); if (fileRef.current) fileRef.current.value = '' }
   }
-  const clearPhoto = () => {
+  const clearPhoto = async () => {
+    if (!champion?.id) return
     if (!confirm('Remove the champion photo?')) return
-    clearPlayerPhoto(tid, playerId)
-    setPhoto(null)
+    setSaving(true)
+    try {
+      await removePlayerPhoto(champion)
+      setPhoto(null)
+    } catch (err) { alert('❌ ' + err.message) }
+    finally { setSaving(false) }
   }
 
   const dateLabel = tournament?.created_at
@@ -194,12 +202,13 @@ export function ChampionPosterCard({
           <input ref={fileRef} type="file" accept="image/*" onChange={handleFile} className="hidden" />
           <button
             onClick={() => fileRef.current?.click()}
-            className="bg-amber-500 hover:bg-amber-400 text-gray-900 font-bold px-4 py-2 rounded-lg text-sm shadow-lg shadow-amber-900/40 transition-colors"
+            disabled={saving}
+            className="bg-amber-500 hover:bg-amber-400 disabled:opacity-60 text-gray-900 font-bold px-4 py-2 rounded-lg text-sm shadow-lg shadow-amber-900/40 transition-colors"
           >
-            📸 {photo ? 'Change Photo' : 'Upload Photo'}
+            📸 {saving ? 'Saving…' : (photo ? 'Change Photo' : 'Upload Photo')}
           </button>
           {photo && (
-            <button onClick={clearPhoto} className="bg-gray-700 hover:bg-gray-600 text-white font-semibold px-4 py-2 rounded-lg text-sm transition-colors">
+            <button onClick={clearPhoto} disabled={saving} className="bg-gray-700 hover:bg-gray-600 disabled:opacity-60 text-white font-semibold px-4 py-2 rounded-lg text-sm transition-colors">
               Remove
             </button>
           )}

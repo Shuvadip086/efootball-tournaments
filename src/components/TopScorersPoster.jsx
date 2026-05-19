@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { getPlayerPhoto, setPlayerPhoto, clearPlayerPhoto, readFileAsDataUrl } from '../utils/posterPhotos'
+import { getPlayerPhoto, savePlayerPhoto, removePlayerPhoto, readFileAsResizedDataUrl } from '../utils/posterPhotos'
 
 /**
  * Top-Scorers Poster — Golden Boot trio (1st, 2nd, 3rd).
@@ -87,23 +87,29 @@ export default function TopScorersPoster({ tournament, topScorers, allowUpload =
 }
 
 // One podium slot — photo + name + 3 stats
-function ScorerSlot({ player, rank, tournamentId, allowUpload }) {
-  const [photo, setPhoto] = useState(() => getPlayerPhoto(tournamentId, player.id))
+function ScorerSlot({ player, rank, tournamentId: _tid, allowUpload }) {
+  const [photo, setPhoto]   = useState(getPlayerPhoto(player))
+  const [saving, setSaving] = useState(false)
   const fileRef = useRef(null)
-  useEffect(() => { setPhoto(getPlayerPhoto(tournamentId, player.id)) }, [tournamentId, player.id])
+  useEffect(() => { setPhoto(getPlayerPhoto(player)) }, [player?.id, player?.photo_data_url])
 
   const onFile = async (e) => {
     const file = e.target.files?.[0]
     if (!file) return
+    setSaving(true)
     try {
-      const dataUrl = await readFileAsDataUrl(file)
-      setPlayerPhoto(tournamentId, player.id, dataUrl)
+      const dataUrl = await readFileAsResizedDataUrl(file)
+      await savePlayerPhoto(player, dataUrl)
       setPhoto(dataUrl)
-    } catch (err) { alert(err.message) }
+    } catch (err) { alert('❌ ' + err.message) }
+    finally { setSaving(false); if (fileRef.current) fileRef.current.value = '' }
   }
-  const clearPhoto = () => {
+  const clearPhoto = async () => {
     if (!confirm(`Remove ${player.name}'s photo?`)) return
-    clearPlayerPhoto(tournamentId, player.id); setPhoto(null)
+    setSaving(true)
+    try { await removePlayerPhoto(player); setPhoto(null) }
+    catch (err) { alert('❌ ' + err.message) }
+    finally { setSaving(false) }
   }
 
   // Style by rank
@@ -156,14 +162,16 @@ function ScorerSlot({ player, rank, tournamentId, allowUpload }) {
           <input ref={fileRef} type="file" accept="image/*" onChange={onFile} className="hidden" />
           <button
             onClick={() => fileRef.current?.click()}
-            className="text-[10px] bg-amber-500/90 hover:bg-amber-400 text-gray-900 font-bold px-2 py-0.5 rounded transition-colors"
+            disabled={saving}
+            className="text-[10px] bg-amber-500/90 hover:bg-amber-400 disabled:opacity-60 text-gray-900 font-bold px-2 py-0.5 rounded transition-colors"
           >
-            📸 {photo ? 'Change' : 'Upload'}
+            📸 {saving ? '…' : (photo ? 'Change' : 'Upload')}
           </button>
           {photo && (
             <button
               onClick={clearPhoto}
-              className="text-[10px] bg-gray-800 hover:bg-gray-700 text-gray-300 font-medium px-2 py-0.5 rounded transition-colors"
+              disabled={saving}
+              className="text-[10px] bg-gray-800 hover:bg-gray-700 disabled:opacity-60 text-gray-300 font-medium px-2 py-0.5 rounded transition-colors"
               title="Remove photo"
             >✕</button>
           )}

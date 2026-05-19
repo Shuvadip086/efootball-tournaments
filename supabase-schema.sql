@@ -36,6 +36,7 @@ create table if not exists public.players (
   user_id uuid references public.profiles(id) on delete set null,
   name text not null,
   avatar_url text,
+  photo_data_url text,
   created_at timestamptz default now()
 );
 

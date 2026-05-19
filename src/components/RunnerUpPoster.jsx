@@ -1,31 +1,35 @@
 import { useState, useEffect, useRef } from 'react'
-import { getPlayerPhoto, setPlayerPhoto, clearPlayerPhoto, readFileAsDataUrl } from '../utils/posterPhotos'
+import { getPlayerPhoto, savePlayerPhoto, removePlayerPhoto, readFileAsResizedDataUrl } from '../utils/posterPhotos'
 
 /**
  * Runner-Up Poster — silver/slate theme, identical shape to the
  * champion poster but tuned for second place. Inline-only.
  */
 export default function RunnerUpPoster({ tournament, runnerUp, runnerUpStats, allowUpload = true }) {
-  const tid      = tournament?.id
-  const playerId = runnerUp?.id
-  const [photo, setPhoto] = useState(() => getPlayerPhoto(tid, playerId))
-  const fileRef = useRef(null)
-  useEffect(() => { setPhoto(getPlayerPhoto(tid, playerId)) }, [tid, playerId])
+  const [photo, setPhoto]   = useState(getPlayerPhoto(runnerUp))
+  const [saving, setSaving] = useState(false)
+  const fileRef             = useRef(null)
+  useEffect(() => { setPhoto(getPlayerPhoto(runnerUp)) }, [runnerUp?.id, runnerUp?.photo_data_url])
 
   if (!runnerUp) return null
 
   const onFile = async (e) => {
     const file = e.target.files?.[0]
     if (!file) return
+    setSaving(true)
     try {
-      const dataUrl = await readFileAsDataUrl(file)
-      setPlayerPhoto(tid, playerId, dataUrl)
+      const dataUrl = await readFileAsResizedDataUrl(file)
+      await savePlayerPhoto(runnerUp, dataUrl)
       setPhoto(dataUrl)
-    } catch (err) { alert(err.message) }
+    } catch (err) { alert('❌ ' + err.message) }
+    finally { setSaving(false); if (fileRef.current) fileRef.current.value = '' }
   }
-  const clearPhoto = () => {
+  const clearPhoto = async () => {
     if (!confirm('Remove the runner-up photo?')) return
-    clearPlayerPhoto(tid, playerId); setPhoto(null)
+    setSaving(true)
+    try { await removePlayerPhoto(runnerUp); setPhoto(null) }
+    catch (err) { alert('❌ ' + err.message) }
+    finally { setSaving(false) }
   }
 
   return (
@@ -102,12 +106,12 @@ export default function RunnerUpPoster({ tournament, runnerUp, runnerUpStats, al
       {allowUpload && (
         <div className="mt-4 flex flex-wrap gap-2 justify-center">
           <input ref={fileRef} type="file" accept="image/*" onChange={onFile} className="hidden" />
-          <button onClick={() => fileRef.current?.click()}
-            className="bg-slate-300 hover:bg-slate-200 text-gray-900 font-bold px-4 py-2 rounded-lg text-sm shadow-lg shadow-slate-900/40 transition-colors">
-            📸 {photo ? 'Change Photo' : 'Upload Photo'}
+          <button onClick={() => fileRef.current?.click()} disabled={saving}
+            className="bg-slate-300 hover:bg-slate-200 disabled:opacity-60 text-gray-900 font-bold px-4 py-2 rounded-lg text-sm shadow-lg shadow-slate-900/40 transition-colors">
+            📸 {saving ? 'Saving…' : (photo ? 'Change Photo' : 'Upload Photo')}
           </button>
           {photo && (
-            <button onClick={clearPhoto} className="bg-gray-700 hover:bg-gray-600 text-white font-semibold px-4 py-2 rounded-lg text-sm transition-colors">
+            <button onClick={clearPhoto} disabled={saving} className="bg-gray-700 hover:bg-gray-600 disabled:opacity-60 text-white font-semibold px-4 py-2 rounded-lg text-sm transition-colors">
               Remove
             </button>
           )}
